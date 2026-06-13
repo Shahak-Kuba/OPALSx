@@ -21,6 +21,7 @@ module Analysis
 using LinearAlgebra
 using Statistics
 using ImageFiltering
+using ProgressMeter
 
 # Cross-module helpers used by `compute_curvature_near_osteocyte`. `..` resolves
 # to the enclosing module (OPALSx when loaded as a package, Main when the source
@@ -626,11 +627,21 @@ Arguments
 - `Ocy_pos_voxel_ordered` : matching `(x, y, z)` voxel indices
 - `dx, dy, dz`            : voxel spacings in µm
 - `σ_μm`                  : Gaussian smoothing radius in µm
+
+Keyword arguments
+- `show_progress`         : display a per-osteocyte progress bar (default `true`).
+                            ProgressMeter throttles its own redraws (~10 Hz), so
+                            the overhead is negligible next to the per-osteocyte
+                            level-set smoothing.
 """
 function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S,
-                                          Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm)
+                                          Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                                          show_progress::Bool=true)
     κ_at_osteocyte   = Float64[]
     mean_available_κ = Float64[]
+
+    prog = Progress(length(t_form_ordered); enabled=show_progress,
+                    desc="  Curvature: ", showspeed=true)
 
     for (idx, t_formed) in enumerate(t_form_ordered)
         ϕ        = ϕ_func(t_formed, outer_dt_S, inner_dt_S)
@@ -645,6 +656,8 @@ function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S
 
         push!(mean_available_κ, mean(κ))
         push!(κ_at_osteocyte,   κ[nearest_index(X .* dx, Y .* dy, osteocyte_x, osteocyte_y)])
+
+        next!(prog)
     end
 
     return κ_at_osteocyte, mean_available_κ

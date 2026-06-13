@@ -14,7 +14,7 @@
 #   DATA/<name>/cells_<name>_.csv   – osteocyte positions exported from Napari
 
 # ── Dataset list ───────────────────────────────────────────────────────────────
-datasets = ["FM40-1-R1", "FM40-2-R2"]
+datasets = ["FM40-2-E5"]
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
 dx = 0.379; dy = 0.379; dz = 0.4   # voxel spacings [µm]
@@ -64,9 +64,9 @@ t_form_all           = Vector{Vector{Float64}}()
 mean_available_κ_all = Vector{Vector{Float64}}()
 
 # ── Main loop: one iteration per dataset ───────────────────────────────────────
-for name in datasets
+for (di, name) in enumerate(datasets)
     println("\n" * "═"^50)
-    println("  Processing: $name")
+    println("  Processing: $name   (dataset $di/$(length(datasets)))")
     println("═"^50)
 
     img_paths              = readdir("./DATA/$name/Processed_Images/"; join=true)
@@ -74,14 +74,21 @@ for name in datasets
     println("  Osteocytes (complete): $(length(Ocy_pos))")
 
     # Build outer/inner masks and their anisotropic signed distance fields.
-    a_outer, a_inner       = build_outer_inner(img_paths)
+    # These are each a single slow call, so we just time them; the per-osteocyte
+    # curvature step below prints its own progress bar.
+    t0 = time()
+    a_outer, a_inner = build_outer_inner(img_paths)
+    println("  Masks built from $(length(img_paths)) slices ($(round(time() - t0; digits=1)) s)")
+
+    t0 = time()
     outer_dt_S, inner_dt_S = compute_EDT_S_py(a_outer, a_inner; dx, dy, dz)
+    println("  Anisotropic distance transforms done ($(round(time() - t0; digits=1)) s)")
 
     # Estimate formation times and order osteocytes from earliest to latest.
     t_form   = estimate_Ocy_formation_time(outer_dt_S, inner_dt_S, Ocy_pos_voxel)
     idx_sort = sortperm(t_form)
 
-    # Curvature of the formation front at each osteocyte.
+    # Curvature of the formation front at each osteocyte (progress bar inside).
     κ_at_osteocyte, mean_available_κ = compute_curvature_near_osteocyte(
         t_form[idx_sort], outer_dt_S, inner_dt_S, Ocy_pos_voxel[idx_sort],
         dx, dy, dz, σ_smooth)
