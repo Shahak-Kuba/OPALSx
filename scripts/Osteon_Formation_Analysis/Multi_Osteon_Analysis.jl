@@ -17,9 +17,12 @@
 datasets = ["FM40-1-R1", "FM40-1-R2", "FM40-2-R2"]
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
+# voxel spacings [µm]
 dx = 0.379; dy = 0.379; dz = 0.4   # voxel spacings [µm]
-σ_smooth = 2.0                      # Gaussian σ [µm] applied to ϕ before curvature
-k_scale_um = 15.0                   # arc length [µm] over which curvature is measured (~osteocyte size)
+# Gaussian σ [µm] applied to ϕ before curvature
+σ_smooth = 2.0                     
+# arc length [µm] over which curvature is measured (~osteocyte size)
+k_scale_um = 60.0                
 
 # ── Source modules ─────────────────────────────────────────────────────────────
 include("../../src/Imaging.jl")
@@ -152,16 +155,16 @@ f3 = plot_formation_time_density(t_form_all, dataset_labels)
 
 # ── Figure 4 Curvature distribution per formation-time bracket (violin + boxplot):
 #    does the curvature preference change over time?
-f4 = plot_curvature_by_time_bracket(t_form_all, κ_at_osteocyte_all, mean_available_κ_all;
+f4 = Plotting.plot_curvature_by_time_bracket(t_form_all, κ_at_osteocyte_all, mean_available_κ_all;
                                     relative=false, nbrackets=4)
 #saveshow("curvature_by_time_bracket.png", f4)
 
 # ── Figure 5 ECDF of formation time vs the uniform reference (diagonal): a clean read on
 #    whether osteocytes form earlier/later than uniform.
-f5 = plot_formation_time_ecdf(t_form_all, dataset_labels)
+f5 = Plotting.plot_formation_time_ecdf(t_form_all, dataset_labels)
 #saveshow("formation_time_ecdf.png", f5)
 
-f6 = plot_curvature_density(κ_at_osteocyte_all, mean_available_κ_all, dataset_labels; relative=true)
+f6 = plot_curvature_density(κ_at_osteocyte_all, mean_available_κ_all, dataset_labels; relative=false)
 
 # ── Figure 2: 3-D formation-front surface ────────────────────────────────────
 dataset_idx        = 1

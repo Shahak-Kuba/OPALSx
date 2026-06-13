@@ -13,8 +13,9 @@ canal wall (`t = 1`) over normalised formation time `t ∈ [0, 1]`.
 
 ```
 OPALSx/
-├── Project.toml          Julia environment (package deps)
+├── Project.toml          Julia environment (package deps, incl. GLMakie)
 ├── Manifest.toml         pinned dependency versions
+├── hpc/                  headless environment (same deps minus GLMakie)
 ├── src/
 │   ├── OPALSx.jl         top-level module — includes & re-exports the submodules
 │   ├── Imaging.jl        load segmented stacks → outer/inner Boolean masks
@@ -80,8 +81,18 @@ backend. Set `BACKEND` at the top of the script:
 - `:cairo` → **CairoMakie** — high-resolution static figures for posters/talks
   (`CairoMakie.activate!(px_per_unit=3)`; `save` also supports `.pdf`/`.svg`).
 
+### HPC / headless runs
+
 `Multi_Osteon_Analysis_HPC.jl` is the headless CairoMakie variant for compute
-nodes.
+nodes. It uses a **separate environment, `hpc/`, which is the main project minus
+GLMakie**, so a headless node never installs or precompiles GLMakie (GLMakie
+needs system OpenGL/GLFW that such nodes lack). The script activates `hpc/`
+itself; on a login node (with internet) build it once:
+
+```bash
+julia --project=hpc -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+julia --project=hpc scripts/Osteon_Formation_Analysis/Multi_Osteon_Analysis_HPC.jl
+```
 
 To analyse other samples, drop their `Processed_Images/` folder and
 `cells_<name>_.csv` under `DATA/<name>/` and add `<name>` to the `datasets`

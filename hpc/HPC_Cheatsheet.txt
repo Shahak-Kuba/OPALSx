@@ -1,0 +1,5 @@
+## For precompiling the package
+julia --project=hpc -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+
+## For running the scrips (Multi_Osteon_Analysis_HPC.julia)
+julia --project=hpc scripts/Osteon_Formation_Analysis/Multi_Osteon_Analysis_HPC.jl --k_scale_um=30

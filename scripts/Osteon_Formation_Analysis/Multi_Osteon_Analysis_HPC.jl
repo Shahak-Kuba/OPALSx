@@ -13,20 +13,30 @@
 #
 # ── Running it ───────────────────────────────────────────────────────────────
 #   julia /path/to/OPALSx/scripts/Osteon_Formation_Analysis/Multi_Osteon_Analysis_HPC.jl
-# (the script activates the OPALSx project itself, so --project is optional).
+# (the script activates the dedicated `hpc/` environment itself, so --project is
+# optional).
+#
+# The curvature scale can be set from the terminal (no need to edit this file):
+#   julia .../Multi_Osteon_Analysis_HPC.jl --k_scale_um=30
+#   julia --project=hpc .../Multi_Osteon_Analysis_HPC.jl --k_scale_um 30
+# If omitted it uses the default set below.
+#
+# This uses the OPALSx/hpc/ environment, which is the main project MINUS GLMakie.
+# That way a headless compute node never installs or precompiles GLMakie (it needs
+# system OpenGL/GLFW that such nodes lack) — plotting goes through CairoMakie only.
 #
 # ── One-time setup on the HPC (do this on a LOGIN node with internet) ─────────
 # Compute nodes usually have no internet, but Pkg needs it to fetch packages.
-# Build/precompile everything once on the login node:
+# Build/precompile the HPC environment once on the login node:
 #   cd /path/to/OPALSx
-#   julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
-# The distance transform is now native Julia (no SciPy/Conda), so no conda
-# environment is needed on the compute node.
+#   julia --project=hpc -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+# The distance transform is native Julia (no SciPy/Conda), so no conda
+# environment is needed either.
 # =============================================================================
 
 import Pkg
 const PROJECT_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
-Pkg.activate(PROJECT_ROOT)                       # use the OPALSx environment
+Pkg.activate(joinpath(PROJECT_ROOT, "hpc"))      # GLMakie-free environment
 
 # ── Headless plotting backend (NO GLMakie, NO display needed) ────────────────
 using CairoMakie
@@ -46,11 +56,28 @@ using .Imaging, .LevelSet, .Geometry, .Analysis, .Plotting
 using CSV, DataFrames
 using Meshing, GeometryBasics            # headless 3-D isosurface → mesh
 
+# ── Command-line arguments ───────────────────────────────────────────────────
+"""Read a Float64 CLI flag (`--name=VALUE` or `--name VALUE`); fall back to `default`."""
+function cli_float(flag::AbstractString, default::Real)
+    for (i, a) in enumerate(ARGS)
+        valstr = startswith(a, flag * "=") ? split(a, "="; limit = 2)[2] :
+                 (a == flag && i < length(ARGS)) ? ARGS[i + 1] : nothing
+        valstr === nothing && continue
+        v = tryparse(Float64, valstr)
+        v === nothing && error("Could not parse $flag value '$valstr' as a number.")
+        return v
+    end
+    return Float64(default)
+end
+
 # ── Configuration ────────────────────────────────────────────────────────────
 datasets = ["FM40-2-E5"]
 dx = 0.379; dy = 0.379; dz = 0.4          # voxel spacings [µm]
 σ_smooth = 2.0                             # Gaussian σ [µm] for the curvature step
-k_scale_um = 15.0                          # arc length [µm] over which curvature is measured (~osteocyte size)
+# arc length [µm] over which curvature is measured (~osteocyte size).
+# Override from the terminal, e.g.:  julia --project=hpc <script> --k_scale_um=30
+k_scale_um = cli_float("--k_scale_um", 15.0)
+println("Using k_scale_um = $k_scale_um µm")
 
 SAVE_SURFACE_3D    = true                  # also save the 3-D formation-front figure
 SURFACE_DATASET    = datasets[1]           # which dataset to render in 3-D
@@ -188,6 +215,27 @@ f3 = plot_osteocyte_distribution(t_form_all, κ_at_osteocyte_all, mean_available
                                  dataset_labels; relative=true, bins=15)
 save(joinpath(OUT_DIR, "osteocyte_distribution.png"), f3; px_per_unit=3)
 println("Saved $(joinpath(OUT_DIR, "osteocyte_distribution.png"))")
+
+# ── Formation-time KDE (smooth alternative to the histogram) ─────────────────
+f4 = plot_formation_time_density(t_form_all, dataset_labels)
+save(joinpath(OUT_DIR, "formation_time_density.png"), f4; px_per_unit=3)
+println("Saved $(joinpath(OUT_DIR, "formation_time_density.png"))")
+
+# ── Curvature KDE (relative=false → sign separates convex >0 / concave <0) ───
+f5 = plot_curvature_density(κ_at_osteocyte_all, mean_available_κ_all, dataset_labels; relative=false)
+save(joinpath(OUT_DIR, "curvature_density.png"), f5; px_per_unit=3)
+println("Saved $(joinpath(OUT_DIR, "curvature_density.png"))")
+
+# ── Curvature per formation-time bracket (violin + boxplot) ──────────────────
+f6 = plot_curvature_by_time_bracket(t_form_all, κ_at_osteocyte_all, mean_available_κ_all;
+                                    relative=false, nbrackets=4)
+save(joinpath(OUT_DIR, "curvature_by_time_bracket.png"), f6; px_per_unit=3)
+println("Saved $(joinpath(OUT_DIR, "curvature_by_time_bracket.png"))")
+
+# ── Formation-time ECDF vs the uniform reference (diagonal) ──────────────────
+f7 = plot_formation_time_ecdf(t_form_all, dataset_labels)
+save(joinpath(OUT_DIR, "formation_time_ecdf.png"), f7; px_per_unit=3)
+println("Saved $(joinpath(OUT_DIR, "formation_time_ecdf.png"))")
 
 # ── Formation-front surface (3-D, headless via marching cubes) ───────────────
 if SAVE_SURFACE_3D
