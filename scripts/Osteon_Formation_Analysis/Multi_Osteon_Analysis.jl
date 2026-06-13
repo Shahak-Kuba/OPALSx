@@ -14,7 +14,7 @@
 #   DATA/<name>/cells_<name>_.csv   – osteocyte positions exported from Napari
 
 # ── Dataset list ───────────────────────────────────────────────────────────────
-datasets = ["FM40-2-E5"]
+datasets = ["FM40-2-E1"]
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
 dx = 0.379; dy = 0.379; dz = 0.4   # voxel spacings [µm]
@@ -134,13 +134,23 @@ surface_tvals      = collect(0:0.5:1)
 
 img_paths = readdir("./DATA/$dataset/Processed_Images/"; join=true)
 a_outer, a_inner = build_outer_inner(img_paths; downsample=surface_downsample)
-
+Ocy_pos, Ocy_pos_voxel = load_osteocytes("./DATA/$dataset/cells_$(dataset)_.csv"; dx, dy, dz)
 # Downsampling is in-plane only, so x/y spacings scale by the stride; z is unchanged.
 sdx, sdy = dx * surface_downsample, dy * surface_downsample
 outer_dt_S, inner_dt_S = compute_EDT_S_py(a_outer, a_inner; dx=sdx, dy=sdy, dz=dz)
 ϕ = compute_ϕ_stack_3D(outer_dt_S, inner_dt_S, surface_tvals)
 
+surface_cmap  = :plasma
+surface_alpha = 0.7          # 1.0 = fully solid (hides inner shells); ~0.6–0.8 shows nesting
+
 f2 = Figure()
-ax = Axis3(f2[1, 1]; title = "Formation front — $dataset")
-plot_3d_surfaces!(ax, ϕ, surface_tvals; dx=sdx, dy=sdy, dz=dz, σ_μm=2.0)
+ax = Axis3(f2[1, 1]; title = "Formation front — $dataset",
+           xlabel="x [µm]", ylabel="y [µm]", zlabel="z [µm]")
+plot_3d_surfaces!(ax, ϕ, surface_tvals;
+                  dx=sdx, dy=sdy, dz=dz, σ_μm=2.0,
+                  colormap=surface_cmap, alpha=surface_alpha,
+                  show_osteocytes=true, osteocytes=Ocy_pos,   # Ocy_pos is in µm
+                  osteocyte_color=:red, osteocyte_markersize=10)
+# Colorbar: low colour = outermost surface (t=0, cement line), high = innermost (t=1, canal).
+Colorbar(f2[1, 2]; colormap=surface_cmap, limits=extrema(surface_tvals), label="formation time  t")
 display(f2)
