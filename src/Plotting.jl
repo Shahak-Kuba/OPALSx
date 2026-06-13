@@ -1,24 +1,32 @@
 """
     Plotting
 
-GLMakie helpers for visualising osteon reconstructions.
+Makie helpers for visualising osteon reconstructions.
 
-Functions here draw onto a caller-supplied axis (`Axis`/`Axis3`) and mutate it
-in place (hence the trailing `!`). They cover the per-slice zero-level contours
-of the level-set field, the volumetric zero isosurface, the cutting-plane
-intersection points, and the formation-front inclination plots. `smooth_levelset`
-applies the same anisotropic Gaussian blur used elsewhere so that plotted
-surfaces match the analysed ones.
+The functions use the **backend-agnostic `Makie` API**, so every plot works with
+either backend — activate one before plotting:
+
+- `using GLMakie; GLMakie.activate!()` — interactive windows and 3-D animation;
+- `using CairoMakie; CairoMakie.activate!(px_per_unit=3)` — high-resolution
+  static figures for posters/papers (`save("fig.png"/"fig.pdf", fig)`).
+
+Drawing functions take a caller-supplied axis (`Axis`/`Axis3`) and mutate it in
+place (trailing `!`); figure-level functions return a `Figure`. `smooth_levelset`
+applies the same anisotropic Gaussian blur used elsewhere so plotted surfaces
+match the analysed ones.
 """
 module Plotting
 
-using GLMakie
+using Makie                   # backend-agnostic API (GLMakie or CairoMakie supplies the backend)
 using ImageFiltering
 using Meshing                 # marching-cubes isosurface extraction
-import GeometryBasics         # Mesh / TriangleFace (qualified to avoid clashing with GLMakie exports)
+import GeometryBasics         # Mesh / TriangleFace (qualified to avoid clashing with Makie exports)
 import Contour as CTR
 
-export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!, plot_α_β!, plot_3d_surfaces!
+export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!, plot_α_β!,
+       plot_3d_surfaces!, plot_osteocyte_distribution,
+       plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
+       plot_curvature_by_time_bracket, plot_formation_time_ecdf
 
 """
     plot_3d_contours!(ax, ϕ, Δz, tvals)
@@ -240,6 +248,196 @@ function plot_α_β!(ax, α, β, tvals)
         scatter!(ax, rad2deg.(β), α[jj,:], markersize = 15)
         lines!(ax, rad2deg.(β), α[jj,:], linewidth = 3, label = "T = $(tvals[jj])")
     end
+end
+
+"""
+    plot_osteocyte_distribution(t_form_all, κ_at_all, mean_κ_all, labels;
+                                relative=true, bins=15, markersize=10) -> Figure
+
+Joint figure for analysing **where, in formation time, and at what curvature**
+osteocytes get embedded — with marginal histograms so two questions can be read
+off a single plot:
+
+- **Top histogram (formation time):** is there a *preferred time* for osteocytes
+  to form? Peaks indicate over-represented formation times.
+- **Right histogram (curvature):** do osteocytes favour *convex* or *concave*
+  parts of the 2-D formation front? A dashed reference line marks the neutral
+  value; mass to one side indicates a preference.
+
+The central panel is the joint scatter (coloured by dataset), revealing whether
+the curvature preference itself changes over formation time.
+
+Arguments
+- `t_form_all`  : vector (one per dataset) of osteocyte formation-time vectors
+- `κ_at_all`    : matching curvature-at-osteocyte vectors  (µm⁻¹)
+- `mean_κ_all`  : matching contour-mean curvature vectors  (µm⁻¹)
+- `labels`      : dataset labels
+
+Keyword arguments
+- `relative` : if `true` (default) plot Δκ = κ_at − mean_κ (curvature *relative to
+               the contour mean*; the line sits at 0 = the average front
+               curvature). If `false`, plot the absolute κ_at, whose **sign**
+               distinguishes convex from concave front (line at κ = 0).
+- `bins`     : number of histogram bins
+- `markersize`: scatter marker size
+
+Backend-agnostic: activate GLMakie or CairoMakie before calling.
+"""
+function plot_osteocyte_distribution(t_form_all, κ_at_all, mean_κ_all, labels;
+                                     relative::Bool = true, bins::Integer = 15, markersize = 10)
+    @assert length(t_form_all) == length(κ_at_all) == length(mean_κ_all) == length(labels)
+
+    yvals = relative ? [κ_at_all[i] .- mean_κ_all[i] for i in eachindex(κ_at_all)] :
+                       [collect(κ_at_all[i])          for i in eachindex(κ_at_all)]
+    ylab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
+    title = relative ? "Osteocyte distribution: formation time vs curvature relative to the mean" :
+                       "Osteocyte distribution: formation time vs curvature (sign = convex/concave)"
+
+    tpool = reduce(vcat, t_form_all)
+    ypool = reduce(vcat, yvals)
+
+    fig = Figure(size = (1000, 850))
+    ax  = Axis(fig[2, 1]; xlabel = "formation time  t", ylabel = ylab)
+    axt = Axis(fig[1, 1]; ylabel = "count")                  # top marginal — formation time
+    axk = Axis(fig[2, 2]; xlabel = "count")                  # right marginal — curvature
+    linkxaxes!(ax, axt)
+    linkyaxes!(ax, axk)
+    hidexdecorations!(axt; grid = false)
+    hideydecorations!(axk; grid = false)
+    rowsize!(fig.layout, 1, Relative(0.18))
+    colsize!(fig.layout, 2, Relative(0.18))
+
+    for i in eachindex(labels)
+        scatter!(ax, t_form_all[i], yvals[i]; markersize = markersize, label = string(labels[i]))
+    end
+    hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
+
+    hist!(axt, tpool; bins = bins, color = (:dodgerblue, 0.6))
+    hist!(axk, ypool; bins = bins, direction = :x, color = (:dodgerblue, 0.6))
+    hlines!(axk, [0.0]; color = :gray, linestyle = :dash)
+
+    Legend(fig[1, 2], ax; framevisible = false)
+    Label(fig[0, :], title; fontsize = 20, font = :bold)
+    return fig
+end
+
+# Helper: stack the per-dataset curvature vectors into one pooled vector, either
+# Δκ = κ_at − mean_κ (relative) or the absolute κ_at.
+_pool_curvature(κ_at_all, mean_κ_all, relative) =
+    relative ? reduce(vcat, [κ_at_all[i] .- mean_κ_all[i] for i in eachindex(κ_at_all)]) :
+               reduce(vcat, [collect(κ_at_all[i])          for i in eachindex(κ_at_all)])
+
+"""
+    plot_formation_time_density(t_form_all, labels) -> Figure
+
+Kernel-density estimate (smooth alternative to a histogram) of the osteocyte
+formation-time distribution — one filled curve per dataset plus a bold pooled
+curve. Peaks indicate over-represented formation times.
+
+Note: raw density is biased by how much bone surface forms per unit time
+(geometry), so read it as "where osteocytes land", not yet a normalised
+preference. Backend-agnostic.
+"""
+function plot_formation_time_density(t_form_all, labels)
+    cols = Makie.wong_colors()
+    fig = Figure(size = (900, 550))
+    ax  = Axis(fig[1, 1]; xlabel = "formation time  t", ylabel = "density",
+               title = "Formation-time distribution (KDE)")
+    for i in eachindex(labels)
+        c = cols[mod1(i, length(cols))]
+        density!(ax, t_form_all[i]; color = (c, 0.25), strokecolor = c, strokewidth = 2,
+                 label = string(labels[i]))
+    end
+    density!(ax, reduce(vcat, t_form_all); color = (:black, 0.0), strokecolor = :black,
+             strokewidth = 3, label = "all pooled")
+    xlims!(ax, 0, 1)
+    axislegend(ax; position = :rt, framevisible = false)
+    return fig
+end
+
+"""
+    plot_curvature_density(κ_at_all, mean_κ_all, labels; relative=true) -> Figure
+
+Kernel-density estimate of the osteocyte **curvature** distribution — one filled
+curve per dataset plus a bold pooled curve (the smooth analogue of the curvature
+histogram). A dashed reference line marks the neutral value; mass to one side of
+it indicates a curvature preference.
+
+- `relative=true` (default): plots Δκ = κ_at − mean_κ (curvature *relative to the
+  contour mean*; the line at 0 is the average front curvature).
+- `relative=false`: plots the absolute κ_at, whose **sign** separates convex
+  (> 0) from concave (< 0) front (line at κ = 0).
+
+Backend-agnostic — activate GLMakie or CairoMakie first.
+"""
+function plot_curvature_density(κ_at_all, mean_κ_all, labels; relative::Bool = true)
+    @assert length(κ_at_all) == length(mean_κ_all) == length(labels)
+    cols  = Makie.wong_colors()
+    yvals = relative ? [κ_at_all[i] .- mean_κ_all[i] for i in eachindex(κ_at_all)] :
+                       [collect(κ_at_all[i])          for i in eachindex(κ_at_all)]
+    xlab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
+
+    fig = Figure(size = (900, 550))
+    ax  = Axis(fig[1, 1]; xlabel = xlab, ylabel = "density",
+               title = "Curvature distribution (KDE)")
+    for i in eachindex(labels)
+        c = cols[mod1(i, length(cols))]
+        density!(ax, yvals[i]; color = (c, 0.25), strokecolor = c, strokewidth = 2,
+                 label = string(labels[i]))
+    end
+    density!(ax, reduce(vcat, yvals); color = (:black, 0.0), strokecolor = :black,
+             strokewidth = 3, label = "all pooled")
+    vlines!(ax, [0.0]; color = :gray, linestyle = :dash)   # 0 = mean (relative) or convex/concave boundary
+    axislegend(ax; position = :rt, framevisible = false)
+    return fig
+end
+
+"""
+    plot_curvature_by_time_bracket(t_form_all, κ_at_all, mean_κ_all; relative=true, nbrackets=4) -> Figure
+
+Split osteocytes into `nbrackets` equal formation-time windows and show the
+curvature distribution in each as a **violin + boxplot** — the clearest way to
+see whether the curvature preference changes over formation time (e.g. early vs
+late osteocytes favouring different curvatures). Dashed line = curvature
+reference. Backend-agnostic.
+"""
+function plot_curvature_by_time_bracket(t_form_all, κ_at_all, mean_κ_all; relative::Bool = true, nbrackets::Integer = 4)
+    tpool = reduce(vcat, t_form_all)
+    ypool = _pool_curvature(κ_at_all, mean_κ_all, relative)
+    ylab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
+    edges = range(0, 1; length = nbrackets + 1)
+    cat   = clamp.(floor.(Int, tpool .* nbrackets) .+ 1, 1, nbrackets)   # bracket index per osteocyte
+    ticks = ["[$(round(edges[b]; digits=2)), $(round(edges[b+1]; digits=2))]" for b in 1:nbrackets]
+
+    fig = Figure(size = (950, 600))
+    ax  = Axis(fig[1, 1]; xlabel = "formation-time bracket", ylabel = ylab,
+               xticks = (1:nbrackets, ticks), title = "Curvature by formation-time bracket")
+    violin!(ax, cat, ypool; color = (:dodgerblue, 0.35), width = 0.85)
+    boxplot!(ax, cat, ypool; width = 0.25, color = :dodgerblue, strokecolor = :black, markersize = 4)
+    hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
+    return fig
+end
+
+"""
+    plot_formation_time_ecdf(t_form_all, labels) -> Figure
+
+Empirical cumulative distribution of formation time, one curve per dataset plus a
+pooled curve, against the **uniform reference** (the diagonal). Deviations above
+the diagonal mean osteocytes form earlier than uniform, below means later — a
+clean way to judge a time preference. Backend-agnostic.
+"""
+function plot_formation_time_ecdf(t_form_all, labels)
+    fig = Figure(size = (800, 600))
+    ax  = Axis(fig[1, 1]; xlabel = "formation time  t", ylabel = "cumulative fraction",
+               title = "Formation-time ECDF")
+    lines!(ax, [0, 1], [0, 1]; color = :gray, linestyle = :dash, label = "uniform")
+    for i in eachindex(labels)
+        ecdfplot!(ax, t_form_all[i]; label = string(labels[i]))
+    end
+    ecdfplot!(ax, reduce(vcat, t_form_all); color = :black, linewidth = 3, label = "all datasets")
+    xlims!(ax, 0, 1); ylims!(ax, 0, 1)
+    axislegend(ax; position = :lt, framevisible = false)
+    return fig
 end
 
 end # end of module

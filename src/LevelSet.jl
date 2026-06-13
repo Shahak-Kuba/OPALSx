@@ -309,8 +309,8 @@ masks, computed natively with [`edt_S_aniso`](@ref) (no Python). The returned
 fields are the inputs to [`ϕ_func`](@ref) / [`estimate_Ocy_formation_time`](@ref).
 """
 function compute_EDT_S(outer, inner; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
-    outer_dt_S = edt_S_aniso(Array{Bool,3}(outer); dx, dy, dz)
-    inner_dt_S = edt_S_aniso(Array{Bool,3}(inner); dx, dy, dz)
+    outer_dt_S = Float32.(edt_S_aniso(Array{Bool,3}(outer); dx, dy, dz))
+    inner_dt_S = Float32.(edt_S_aniso(Array{Bool,3}(inner); dx, dy, dz))
     return outer_dt_S, inner_dt_S
 end
 

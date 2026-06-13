@@ -40,7 +40,8 @@ include(joinpath(PROJECT_ROOT, "src", "Imaging.jl"))
 include(joinpath(PROJECT_ROOT, "src", "LevelSet.jl"))
 include(joinpath(PROJECT_ROOT, "src", "Geometry.jl"))
 include(joinpath(PROJECT_ROOT, "src", "Analysis.jl"))
-using .Imaging, .LevelSet, .Geometry, .Analysis
+include(joinpath(PROJECT_ROOT, "src", "Plotting.jl"))   # Makie-based; CairoMakie supplies the backend
+using .Imaging, .LevelSet, .Geometry, .Analysis, .Plotting
 
 using CSV, DataFrames
 using Meshing, GeometryBasics            # headless 3-D isosurface → mesh
@@ -178,8 +179,14 @@ for i in eachindex(dataset_labels)
 end
 
 Legend(f1[1, 3], a1, "Dataset")
-save(joinpath(OUT_DIR, "curvature_vs_tform.png"), f1; px_per_unit=2)
+save(joinpath(OUT_DIR, "curvature_vs_tform.png"), f1; px_per_unit=3)
 println("Saved $(joinpath(OUT_DIR, "curvature_vs_tform.png"))")
+
+# ── Osteocyte distribution (formation time & curvature preference) ───────────
+f3 = plot_osteocyte_distribution(t_form_all, κ_at_osteocyte_all, mean_available_κ_all,
+                                 dataset_labels; relative=true, bins=15)
+save(joinpath(OUT_DIR, "osteocyte_distribution.png"), f3; px_per_unit=3)
+println("Saved $(joinpath(OUT_DIR, "osteocyte_distribution.png"))")
 
 # ── Formation-front surface (3-D, headless via marching cubes) ───────────────
 if SAVE_SURFACE_3D

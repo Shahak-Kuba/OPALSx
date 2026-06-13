@@ -153,13 +153,10 @@ function compute_curvature(ϕ::AbstractArray{<:Real,3},
         ϕyy = (ϕ[i,   j+1, k  ] - 2ϕc + ϕ[i,   j-1, k  ]) * invdy2
         ϕzz = (ϕ[i,   j,   k+1] - 2ϕc + ϕ[i,   j,   k-1]) * invdz2
 
-        # Mixed derivatives (central)
-        #ϕxy = (ϕ[i+1, j+1, k] - ϕ[i+1, j-1, k] - ϕ[i-1, j+1, k] + ϕ[i-1, j-1, k]) * inv4dxdy
-        #ϕxz = (ϕ[i+1, j, k+1] - ϕ[i+1, j, k-1] - ϕ[i-1, j, k+1] + ϕ[i-1, j, k-1]) * inv4dxdz
-        #ϕyz = (ϕ[i, j+1, k+1] - ϕ[i, j+1, k-1] - ϕ[i, j-1, k+1] + ϕ[i, j-1, k-1]) * inv4dydz
-        ϕxy = (ϕx[i,   j+1, k  ] - ϕx[i,   j-1, k  ]) * inv2dy
-        ϕxz = (ϕx[i,   j,   k+1] - ϕx[i,   j,   k-1]) * inv2dz
-        ϕyz = (ϕy[i,   j,   k+1] - ϕy[i,   j,   k-1]) * inv2dz
+        # Mixed derivatives (central, 4-point stencils)
+        ϕxy = (ϕ[i+1, j+1, k] - ϕ[i+1, j-1, k] - ϕ[i-1, j+1, k] + ϕ[i-1, j-1, k]) * inv4dxdy
+        ϕxz = (ϕ[i+1, j, k+1] - ϕ[i+1, j, k-1] - ϕ[i-1, j, k+1] + ϕ[i-1, j, k-1]) * inv4dxdz
+        ϕyz = (ϕ[i, j+1, k+1] - ϕ[i, j+1, k-1] - ϕ[i, j-1, k+1] + ϕ[i, j-1, k-1]) * inv4dydz
 
 
         # |∇ϕ|
@@ -641,8 +638,8 @@ Keyword arguments
                             level-set smoothing.
 """
 function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S,
-                                          Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
-                                          show_progress::Bool=true)
+                                          Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; 
+                                          k_neighbours=40, show_progress::Bool=true)
     κ_at_osteocyte   = Float64[]
     mean_available_κ = Float64[]
 
@@ -670,7 +667,7 @@ function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S
 
         # Contour the osteocyte's slice (its local index within the slab).
         X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, idx)
-        κ    = compute_2D_curvature(X .* dx, Y .* dy; k=40)
+        κ    = compute_2D_curvature(X .* dx, Y .* dy; k=k_neighbours)
 
         push!(mean_available_κ, mean(κ))
         push!(κ_at_osteocyte,   κ[nearest_index(X .* dx, Y .* dy, osteocyte_x, osteocyte_y)])

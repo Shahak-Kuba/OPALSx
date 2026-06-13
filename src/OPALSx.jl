@@ -15,7 +15,8 @@ included and re-exported here:
   plane-to-plane projections.
 - [`OPALSx.Analysis`](@ref) – curvature estimators (2-D and 3-D) and osteocyte
   formation-time / curvature analysis.
-- [`OPALSx.Plotting`](@ref) – GLMakie helpers for 3-D contours and isosurfaces.
+- [`OPALSx.Plotting`](@ref) – Makie helpers (GLMakie or CairoMakie) for contours,
+  isosurfaces and osteocyte-distribution figures.
 
 # Usage
 The package defines a Julia environment (see `Project.toml`).
@@ -33,7 +34,7 @@ module OPALSx
 
 using FileIO, Images, ImageBinarization, ImageMorphology, ImageSegmentation, ImageFiltering, Statistics
 using DistanceTransforms
-using GLMakie
+using Makie                 # backend-agnostic; load GLMakie or CairoMakie to render
 using CSV, DataFrames
 import Contour as CTR
 
@@ -62,8 +63,10 @@ export
     analysis_Tdelay_pairs, compute_curvature, compute_curvature_4th,
     compute_2D_curvature, curvature_at_point, estimate_osteocyte_curvature_3D,
     compute_curvature_near_osteocyte,
-    # Plotting — GLMakie entry points
+    # Plotting — Makie entry points (GLMakie or CairoMakie backend)
     plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!,
-    plot_α_β!, plot_3d_surfaces!
+    plot_α_β!, plot_3d_surfaces!, plot_osteocyte_distribution,
+    plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
+    plot_curvature_by_time_bracket, plot_formation_time_ecdf
 
 end # module OPALSx

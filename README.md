@@ -65,9 +65,37 @@ The script processes every dataset listed in its `datasets` array
    wall and cement line;
 4. measures the bone-surface curvature at each osteocyte's formation time.
 
-Results are overlaid in two GLMakie scatter plots: curvature at the osteocyte,
-and curvature relative to the contour mean, both against formation time.
+It produces three figures: the curvature-vs-formation-time scatter, the 3-D
+formation-front surface (with optional osteocyte overlay), and an
+osteocyte-distribution figure (formation-time and curvature histograms) for
+reading off a preferred formation time and a convex/concave curvature
+preference. Figures are saved to `figures/`.
+
+### Plotting backends
+
+Plotting uses the backend-agnostic Makie API, so figures render in either
+backend. Set `BACKEND` at the top of the script:
+
+- `:gl` → **GLMakie** — interactive windows and 3-D rotation/animation (local use);
+- `:cairo` → **CairoMakie** — high-resolution static figures for posters/talks
+  (`CairoMakie.activate!(px_per_unit=3)`; `save` also supports `.pdf`/`.svg`).
+
+`Multi_Osteon_Analysis_HPC.jl` is the headless CairoMakie variant for compute
+nodes.
 
 To analyse other samples, drop their `Processed_Images/` folder and
 `cells_<name>_.csv` under `DATA/<name>/` and add `<name>` to the `datasets`
 list.
+
+## Tests
+
+The test suite (`test/`) verifies the main functions of `LevelSet.jl`,
+`Geometry.jl` and `Analysis.jl` against a synthetic concentric-cylinder geometry
+(a large cylinder for the cement line, a small one for the Haversian canal, and
+random osteocyte positions in between), where the distance fields, contours,
+formation times and curvatures all have known analytic values. Run with:
+
+```bash
+julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
