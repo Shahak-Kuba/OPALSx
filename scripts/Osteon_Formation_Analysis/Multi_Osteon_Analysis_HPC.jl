@@ -50,6 +50,7 @@ using Meshing, GeometryBasics            # headless 3-D isosurface → mesh
 datasets = ["FM40-2-E5"]
 dx = 0.379; dy = 0.379; dz = 0.4          # voxel spacings [µm]
 σ_smooth = 2.0                             # Gaussian σ [µm] for the curvature step
+k_scale_um = 15.0                          # arc length [µm] over which curvature is measured (~osteocyte size)
 
 SAVE_SURFACE_3D    = true                  # also save the 3-D formation-front figure
 SURFACE_DATASET    = datasets[1]           # which dataset to render in 3-D
@@ -147,7 +148,7 @@ for (di, name) in enumerate(datasets)
 
     κ_at_osteocyte, mean_available_κ = compute_curvature_near_osteocyte(
         t_form[idx_sort], outer_dt_S, inner_dt_S, Ocy_pos_voxel[idx_sort],
-        dx, dy, dz, σ_smooth)
+        dx, dy, dz, σ_smooth; k_scale_um=k_scale_um)
 
     push!(dataset_labels,       name)
     push!(t_form_all,           t_form[idx_sort])

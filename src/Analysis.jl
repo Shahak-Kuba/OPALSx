@@ -334,14 +334,24 @@ b²)^{3/2}`. `eps` guards the denominator. Returns one curvature value per
 contour point (in the units of `x`, `y`); pass physical coordinates (e.g.
 `X .* dx`) to obtain curvature in µm⁻¹.
 
+The fitting window can be chosen in two ways:
+- a fixed **point count** `±k` (the default), or
+- a fixed **physical arc length** via `arclen` (in the units of `x`,`y`): each
+  point's window then spans `±arclen/2` of cumulative arc length (at least `k_min`
+  points per side). Use `arclen` to measure curvature at a constant physical
+  scale (e.g. ≈ one osteocyte) regardless of how many points the contour has.
+
 Arguments
 - `x`, `y` : coordinate vectors of the closed contour (first point repeated)
 
 Keyword arguments
-- `k`   : half-width of the fitting window in points (≥1)
-- `eps` : small value added to the denominator for numerical stability
+- `k`      : half-width of the fitting window in points (used when `arclen===nothing`)
+- `arclen` : if set, full arc length (same units as `x`,`y`) of the fitting window;
+             overrides `k`
+- `k_min`  : minimum points per side in arc-length mode (parabola-fit stability)
+- `eps`    : small value added to the denominator for numerical stability
 """
-function compute_2D_curvature(x,y; k=3, eps=1e-10)
+function compute_2D_curvature(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10)
     @assert length(x) == length(y) "x and y must have same length"
     N = length(x)-1
     @assert N ≥ 5 "Need at least 5 points"
@@ -368,12 +378,36 @@ function compute_2D_curvature(x,y; k=3, eps=1e-10)
         return (cx + c*dx - s*dy,  cy + s*dx + c*dy)
     end
 
+    # Arc-length window selection: gather points within ±`half` cumulative arc
+    # length of `ii` on each side (at least `k_min`), without wrapping the whole
+    # loop. Measures curvature at a fixed physical scale even though the number
+    # of contour points varies with contour size.
+    seglen(i) = (ip = wrap(i + 1); hypot(X[ip] - X[i], Y[ip] - Y[i]))
+    function window_by_arclen(ii, half)
+        right = Int[]; acc = 0.0; j = ii
+        while length(right) < N - 2
+            jn = wrap(j + 1); acc += seglen(j); push!(right, jn)
+            (acc ≥ half && length(right) ≥ k_min) && break
+            j = jn
+        end
+        left = Int[]; acc = 0.0; j = ii
+        while length(left) < N - 2
+            jp = wrap(j - 1); acc += seglen(jp); pushfirst!(left, jp)
+            (acc ≥ half && length(left) ≥ k_min) && break
+            j = jp
+        end
+        return vcat(left, ii, right)
+    end
+
+    half = arclen === nothing ? 0.0 : arclen / 2
     curvature = zeros(length(x),1)
     for ii in eachindex(x)
-        # getting the indicies of the considered nodes on either side of the ii point
-        left  = [wrap(ii - s) for s in k:-1:1]
-        right = [wrap(ii + s) for s in 1:k]
-        ii_considered = vcat(left, ii, right)
+        # indices of the considered nodes on either side of point ii
+        ii_considered = if arclen === nothing
+            vcat([wrap(ii - s) for s in k:-1:1], ii, [wrap(ii + s) for s in 1:k])
+        else
+            window_by_arclen(ii, half)
+        end
         x_central = X[ii]
         y_central = Y[ii]
         x_considered = X[ii_considered]
@@ -624,6 +658,12 @@ time. Two values are recorded per osteocyte:
 
 Both are returned as vectors in the input order, in units of µm⁻¹.
 
+The curvature is measured at a fixed **physical scale** `k_scale_um`: each
+parabola is fitted over an arc of length `k_scale_um` µm of the contour
+(`compute_2D_curvature(...; arclen=k_scale_um)`). This keeps the measurement
+scale constant across formation times even though later (inner) contours are
+smaller — set it to roughly the size of one (or a few) osteocytes.
+
 Arguments
 - `t_form_ordered`        : formation times `tᵢ ∈ [0, 1]`
 - `outer_dt_S`, `inner_dt_S` : signed distance volumes (see [`LevelSet.compute_EDT_S`](@ref))
@@ -632,14 +672,17 @@ Arguments
 - `σ_μm`                  : Gaussian smoothing radius in µm
 
 Keyword arguments
+- `k_scale_um`            : arc length (µm) of the curvature-fitting window — the
+                            physical scale at which curvature is measured
+                            (default `15.0`, ≈ one osteocyte).
 - `show_progress`         : display a per-osteocyte progress bar (default `true`).
                             ProgressMeter throttles its own redraws (~10 Hz), so
                             the overhead is negligible next to the per-osteocyte
                             level-set smoothing.
 """
 function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S,
-                                          Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; 
-                                          k_neighbours=40, show_progress::Bool=true)
+                                          Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                                          k_scale_um::Real=15.0, show_progress::Bool=true)
     κ_at_osteocyte   = Float64[]
     mean_available_κ = Float64[]
 
@@ -667,7 +710,7 @@ function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S
 
         # Contour the osteocyte's slice (its local index within the slab).
         X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, idx)
-        κ    = compute_2D_curvature(X .* dx, Y .* dy; k=k_neighbours)
+        κ    = compute_2D_curvature(X .* dx, Y .* dy; arclen=k_scale_um)
 
         push!(mean_available_κ, mean(κ))
         push!(κ_at_osteocyte,   κ[nearest_index(X .* dx, Y .* dy, osteocyte_x, osteocyte_y)])
