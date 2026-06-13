@@ -94,9 +94,33 @@ julia --project=hpc -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 julia --project=hpc scripts/Osteon_Formation_Analysis/Multi_Osteon_Analysis_HPC.jl
 ```
 
+The HPC script takes terminal options (no file edits needed):
+
+```bash
+julia --project=hpc scripts/Osteon_Formation_Analysis/Multi_Osteon_Analysis_HPC.jl \
+      --datasets=FM40-1-R1,FM40-2-R2 --k_scale_um=30 --run=FM40_k30
+```
+
+- `--datasets` — comma-separated list (no spaces)
+- `--k_scale_um` — curvature measurement scale in µm
+- `--run` — name of the output folder (defaults to a timestamp)
+
+All outputs (figures, `curvature_results.csv`, `run_info.txt`) land in a single
+self-contained folder `output/<run>/`, which is **also bundled into one file
+`output/<run>.zip`**. Pull it to your laptop with `scp`, run **from your
+laptop**:
+
+```bash
+scp your_user@hpc.address:/path/to/OPALSx/output/FM40_k30.zip ~/Downloads/   # single zip
+scp -r your_user@hpc.address:/path/to/OPALSx/output/FM40_k30 ~/Downloads/    # or the folder
+```
+
+(replace `your_user`, `hpc.address` and the path; for a timestamped run use that
+run's name instead of `FM40_k30`).
+
 To analyse other samples, drop their `Processed_Images/` folder and
-`cells_<name>_.csv` under `DATA/<name>/` and add `<name>` to the `datasets`
-list.
+`cells_<name>_.csv` under `DATA/<name>/` and pass them via `--datasets` (or edit
+the default `datasets` in the script).
 
 ## Tests
 

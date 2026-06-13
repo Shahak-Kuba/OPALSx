@@ -16,10 +16,19 @@
 # (the script activates the dedicated `hpc/` environment itself, so --project is
 # optional).
 #
-# The curvature scale can be set from the terminal (no need to edit this file):
-#   julia .../Multi_Osteon_Analysis_HPC.jl --k_scale_um=30
+# The datasets, curvature scale and run-folder name can be set from the terminal
+# (no file edits):
+#   julia .../Multi_Osteon_Analysis_HPC.jl --datasets=FM40-1-R1,FM40-2-R2 --k_scale_um=30 --run=FM40_k30
 #   julia --project=hpc .../Multi_Osteon_Analysis_HPC.jl --k_scale_um 30
-# If omitted it uses the default set below.
+# `--datasets` is a comma-separated list (no spaces). Omitted flags use defaults.
+#
+# ── Outputs ──────────────────────────────────────────────────────────────────
+# All outputs (figures, curvature_results.csv, run_info.txt) are written to ONE
+# self-contained folder: output/<run>/  (a timestamp unless you pass --run=NAME),
+# and that folder is also bundled into a single file output/<run>.zip.
+# Pull it onto your laptop in one go (run this FROM your laptop):
+#   scp user@hpc.address:/path/to/OPALSx/output/<run>.zip ~/Downloads/   # the .zip
+#   scp -r user@hpc.address:/path/to/OPALSx/output/<run> ~/Downloads/    # or the folder
 #
 # This uses the OPALSx/hpc/ environment, which is the main project MINUS GLMakie.
 # That way a headless compute node never installs or precompiles GLMakie (it needs
@@ -55,23 +64,42 @@ using .Imaging, .LevelSet, .Geometry, .Analysis, .Plotting
 
 using CSV, DataFrames
 using Meshing, GeometryBasics            # headless 3-D isosurface → mesh
+using ZipFile                            # bundle the run folder into one .zip
 
 # ── Command-line arguments ───────────────────────────────────────────────────
+"""Locate a CLI flag's value string (`--name=VALUE` or `--name VALUE`); else `nothing`."""
+function cli_value(flag::AbstractString)
+    for (i, a) in enumerate(ARGS)
+        startswith(a, flag * "=")        && return split(a, "="; limit = 2)[2]
+        (a == flag && i < length(ARGS))  && return ARGS[i + 1]
+    end
+    return nothing
+end
+
 """Read a Float64 CLI flag (`--name=VALUE` or `--name VALUE`); fall back to `default`."""
 function cli_float(flag::AbstractString, default::Real)
-    for (i, a) in enumerate(ARGS)
-        valstr = startswith(a, flag * "=") ? split(a, "="; limit = 2)[2] :
-                 (a == flag && i < length(ARGS)) ? ARGS[i + 1] : nothing
-        valstr === nothing && continue
-        v = tryparse(Float64, valstr)
-        v === nothing && error("Could not parse $flag value '$valstr' as a number.")
-        return v
-    end
-    return Float64(default)
+    valstr = cli_value(flag)
+    valstr === nothing && return Float64(default)
+    v = tryparse(Float64, valstr)
+    v === nothing && error("Could not parse $flag value '$valstr' as a number.")
+    return v
+end
+
+"""Read a comma-separated list CLI flag (`--name=A,B,C` or `--name A,B,C`); else `default`."""
+function cli_strings(flag::AbstractString, default::Vector{String})
+    valstr = cli_value(flag)
+    valstr === nothing && return default
+    items = filter(!isempty, strip.(split(valstr, ",")))
+    isempty(items) && error("$flag was given but no names were parsed from '$valstr'.")
+    return String.(items)
 end
 
 # ── Configuration ────────────────────────────────────────────────────────────
-datasets = ["FM40-2-E5"]
+# Datasets to process. Override from the terminal (comma-separated, no spaces),
+# e.g.:  julia --project=hpc <script> --datasets=FM40-1-R1,FM40-2-R2
+datasets = cli_strings("--datasets", ["FM40-2-E5"])
+println("Datasets: ", join(datasets, ", "))
+
 dx = 0.379; dy = 0.379; dz = 0.4          # voxel spacings [µm]
 σ_smooth = 2.0                             # Gaussian σ [µm] for the curvature step
 # arc length [µm] over which curvature is measured (~osteocyte size).
@@ -83,9 +111,31 @@ SAVE_SURFACE_3D    = true                  # also save the 3-D formation-front f
 SURFACE_DATASET    = datasets[1]           # which dataset to render in 3-D
 SURFACE_TVALS      = collect(0.0:0.5:1.0)  # formation times to show as isosurfaces
 SURFACE_DOWNSAMPLE = 2                     # mesh stride (1 = full res; larger = lighter/faster)
+MAKE_ZIP           = true                  # also bundle the run folder into output/<run>.zip
 
 const DATA_DIR = joinpath(PROJECT_ROOT, "DATA")
-const OUT_DIR  = joinpath(PROJECT_ROOT, "output"); mkpath(OUT_DIR)
+
+# ── Self-contained run folder ────────────────────────────────────────────────
+# Everything this run produces (figures, CSV, run_info.txt) goes into ONE folder
+# under output/, so you can pull the whole thing off the HPC in one go. The name
+# defaults to a timestamp; override with `--run`, e.g. `--run=FM40_k30`.
+using Dates
+run_name = something(cli_value("--run"), "run_" * Dates.format(now(), "yyyy-mm-dd_HH-MM-SS"))
+const OUT_DIR = joinpath(PROJECT_ROOT, "output", run_name); mkpath(OUT_DIR)
+println("Output folder: $OUT_DIR")
+
+# Write a small manifest of the run parameters so the folder is self-documenting.
+open(joinpath(OUT_DIR, "run_info.txt"), "w") do io
+    println(io, "OPALSx HPC run")
+    println(io, "timestamp        : ", now())
+    println(io, "datasets         : ", join(datasets, ", "))
+    println(io, "k_scale_um  [µm] : ", k_scale_um)
+    println(io, "σ_smooth    [µm] : ", σ_smooth)
+    println(io, "dx, dy, dz  [µm] : ", (dx, dy, dz))
+    println(io, "surface 3-D      : ", SAVE_SURFACE_3D, "  (dataset=", SURFACE_DATASET,
+                ", downsample=", SURFACE_DOWNSAMPLE, ")")
+    println(io, "julia version    : ", VERSION)
+end
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 """
@@ -249,4 +299,30 @@ if SAVE_SURFACE_3D
     println("Saved $out")
 end
 
+# ── Bundle the whole run folder into a single .zip for easy transfer ──────────
+"Zip the contents of `folder` into `zippath`, stored under the folder's own name."
+function zip_folder(folder::AbstractString, zippath::AbstractString)
+    base = dirname(folder)
+    w = ZipFile.Writer(zippath)
+    try
+        for (root, _, files) in walkdir(folder)
+            for fname in files
+                full  = joinpath(root, fname)
+                entry = ZipFile.addfile(w, relpath(full, base); method = ZipFile.Deflate)
+                write(entry, read(full))
+            end
+        end
+    finally
+        close(w)
+    end
+    return zippath
+end
+
+if MAKE_ZIP
+    zippath = OUT_DIR * ".zip"                       # output/<run>.zip (sits next to the folder)
+    zip_folder(OUT_DIR, zippath)
+    println("Bundled outputs → $zippath")
+end
+
 println("\nFinished. Outputs in $OUT_DIR")
+MAKE_ZIP && println("Single-file bundle: $(OUT_DIR).zip")

@@ -2,4 +2,16 @@
 julia --project=hpc -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
 ## For running the scrips (Multi_Osteon_Analysis_HPC.julia)
-julia --project=hpc scripts/Osteon_Formation_Analysis/Multi_Osteon_Analysis_HPC.jl --k_scale_um=30
+julia --project=hpc scripts/Osteon_Formation_Analysis/Multi_Osteon_Analysis_HPC.jl \
+      --datasets=FM40-1-R1,FM40-2-R2 --k_scale_um=30 --run=FM40_k30
+
+This has 3 inputs:
+1. "--datasets":    datasets considered
+2. "--k_scale_um":  scale to measure 2D curvature (in um)
+3. "--run":         name of the run for HPC folder saving purposes
+
+## For pulling output off HPC
+scp -r your_user@hpc.address:/path/to/OPALSx/output/run_name ~/directory-to-save-to
+
+for example: 
+scp -r n9996095@QUT-MACSYS:OPALSx/output/run_name ~/directory-to-save-to
