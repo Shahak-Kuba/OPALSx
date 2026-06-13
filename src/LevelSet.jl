@@ -144,12 +144,30 @@ Fully 3-D build of the level-set field for a sequence of formation times
 returning a 4-D stack `(H, W, Z, length(tvals))`. The batched counterpart of
 [`compute_ϕ_at_t_3D`](@ref).
 """
-function compute_ϕ_stack_3D(outer, inner, tvals)
+function compute_ϕ_stack_3D(outer::BitArray{3}, inner::BitArray{3}, tvals::Vector{Float64})
     H, W, Z = size(outer)
     ϕ = zeros(Float32, H, W, Z, length(tvals))
 
     outer_dt_S = edt_S(outer)
     inner_dt_S = edt_S(inner)
+
+    for (ti, t) in enumerate(tvals)
+        ϕ[:,:,:,ti] .= ϕ_func(t, outer_dt_S, inner_dt_S)
+    end
+    return ϕ
+end
+
+"""
+    compute_ϕ_stack_3D(outer, inner, tvals) -> Array{Float32,4}
+
+Fully 3-D build of the level-set field for a sequence of formation times
+`tvals`. The volumetric signed EDTs are computed once and reused for every time,
+returning a 4-D stack `(H, W, Z, length(tvals))`. The batched counterpart of
+[`compute_ϕ_at_t_3D`](@ref).
+"""
+function compute_ϕ_stack_3D(outer_dt_S::Array{Float32,3}, inner_dt_S::Array{Float32,3}, tvals::Vector{Float64})
+    H, W, Z = size(outer_dt_S)
+    ϕ = zeros(Float32, H, W, Z, length(tvals))
 
     for (ti, t) in enumerate(tvals)
         ϕ[:,:,:,ti] .= ϕ_func(t, outer_dt_S, inner_dt_S)

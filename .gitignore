@@ -7,5 +7,9 @@
 *.jl.mem
 /docs/build/
 
+# Generated figures / results
+/output/
+/figures/
+
 # macOS
 .DS_Store

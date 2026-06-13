@@ -25,7 +25,8 @@ include("../../src/Imaging.jl")
 include("../../src/LevelSet.jl")
 include("../../src/Geometry.jl")
 include("../../src/Analysis.jl")
-using .Imaging, .LevelSet, .Geometry, .Analysis
+include("../../src/Plotting.jl")          # needed for plot_3d_surfaces! (GLMakie)
+using .Imaging, .LevelSet, .Geometry, .Analysis, .Plotting
 
 # ── Plotting ───────────────────────────────────────────────────────────────────
 using GLMakie
@@ -117,3 +118,16 @@ end
 
 Legend(f1[1, 3], a1, "Dataset")
 display(f1)
+
+# for plotting the formation front surface:
+f2 = Figure()
+ax = Axis3(f2[1, 1])
+dataset_idx = 1
+dataset = datasets[dataset_idx]
+img_paths = readdir("./DATA/$dataset/Processed_Images/"; join=true)
+a_outer, a_inner = build_outer_inner(img_paths)
+outer_dt_S, inner_dt_S = compute_EDT_S_py(a_outer, a_inner; dx, dy, dz)
+tvals = collect(0:0.5:1)
+ϕ = compute_ϕ_stack_3D(outer_dt_S, inner_dt_S, tvals)
+plot_3d_surfaces!(ax, ϕ, tvals; dx=dx, dy=dy, dz=dz, σ_μm=2.0)
+display(f2)
