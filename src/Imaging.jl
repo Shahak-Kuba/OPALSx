@@ -109,26 +109,29 @@ Keyword arguments
 Returns a tuple `(outer, inner)` of `Bool` arrays sized `(H, W, Z)`.
 """
 function build_outer_inner(img_paths; downsample=1)
-    Z_LAYERS = length(img_paths);
+    Z_LAYERS = length(img_paths)
     # load initial image to get dimensions
     img0 = load(img_paths[1])
     img_x, img_y = size(img0)
-    DIMS = (img_x ÷ downsample, img_y ÷ downsample);
-    RED = RGB{N0f8}(1, 0, 0);
-    GREEN = RGB{N0f8}(0, 1, 0);
+
+    # In-plane downsampling index ranges. DIMS is taken from the *lengths* of
+    # these ranges (not `img_x ÷ downsample`) so the preallocated masks always
+    # match the strided image — important when the image size is not an exact
+    # multiple of `downsample` (e.g. 1035×1914).
+    xs = 1:downsample:img_x
+    ys = 1:downsample:img_y
+    DIMS = (length(xs), length(ys))
+
+    RED   = RGB{N0f8}(1, 0, 0)
+    GREEN = RGB{N0f8}(0, 1, 0)
 
     # preallocating masks
-    outer = falses(DIMS[1], DIMS[2], Z_LAYERS);  # (H, W, Z)
-    inner = trues(DIMS[1], DIMS[2], Z_LAYERS);
+    outer = falses(DIMS[1], DIMS[2], Z_LAYERS)  # (H, W, Z)
+    inner = trues(DIMS[1], DIMS[2], Z_LAYERS)
 
     for z0 in 0:Z_LAYERS-1
-        fn = img_paths[z0+1]
-        img = load(fn)
-        # flip vertically
-        #img = reverse(img, dims=2)
-
-        # downsample
-        img = img[1:downsample:end, 1:downsample:end]
+        img = load(img_paths[z0+1])
+        img = img[xs, ys]                       # in-plane downsample
 
         # color-based masks
         m_green = (img .== GREEN)
@@ -138,7 +141,7 @@ function build_outer_inner(img_paths; downsample=1)
         inner[:, :, z0+1] .= .!m_green
     end
 
-    return outer,inner
+    return outer, inner
 end
 
 """

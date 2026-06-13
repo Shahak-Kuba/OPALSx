@@ -57,13 +57,16 @@ dimensions differ (e.g. dx = dy = 0.379 µm, dz = 0.4 µm).
 
 A σ of ~1 µm removes the staircase while preserving the macro-scale surface
 shape; increase to ~2 µm for heavier smoothing.
+
+Uses a **separable** kernel (`KernelFactors.gaussian`), applied as three 1-D
+passes — equivalent to a dense 3-D Gaussian but with far lower memory use.
 """
 function smooth_levelset(ϕ3d::AbstractArray{<:Real,3};
                           dx::Real=0.379, dy::Real=0.379, dz::Real=0.4,
                           σ_μm::Real=1.0)
     # Convert physical σ to per-axis voxel σ
     σ_vox = (σ_μm/dx, σ_μm/dy, σ_μm/dz)
-    kernel = ImageFiltering.Kernel.gaussian(σ_vox)
+    kernel = ImageFiltering.KernelFactors.gaussian(σ_vox)
     return Float32.(imfilter(ϕ3d, kernel))
 end
 

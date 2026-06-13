@@ -119,15 +119,28 @@ end
 Legend(f1[1, 3], a1, "Dataset")
 display(f1)
 
-# for plotting the formation front surface:
-f2 = Figure()
-ax = Axis3(f2[1, 1])
-dataset_idx = 1
-dataset = datasets[dataset_idx]
+# ── Figure 2: 3-D formation-front surface ────────────────────────────────────
+# This is only a visualisation, so it is built on a DOWNSAMPLED volume. At full
+# resolution (1024×1024×183) GLMakie's volumetric `contour!` uploads a ~0.77 GB
+# 3-D texture per formation time (~2.3 GB total) and was running out of GPU
+# memory and crashing. An in-plane stride of `surface_downsample` shrinks the
+# volume ~16× (EDT, smoothing and the GPU texture all scale with it) while still
+# giving a clean surface. Increase the stride if it still struggles; decrease
+# (down to 1) for a finer surface if your GPU has the memory.
+dataset_idx        = 1
+dataset            = datasets[dataset_idx]
+surface_downsample = 4
+surface_tvals      = collect(0:0.5:1)
+
 img_paths = readdir("./DATA/$dataset/Processed_Images/"; join=true)
-a_outer, a_inner = build_outer_inner(img_paths)
-outer_dt_S, inner_dt_S = compute_EDT_S_py(a_outer, a_inner; dx, dy, dz)
-tvals = collect(0:0.5:1)
-ϕ = compute_ϕ_stack_3D(outer_dt_S, inner_dt_S, tvals)
-plot_3d_surfaces!(ax, ϕ, tvals; dx=dx, dy=dy, dz=dz, σ_μm=2.0)
+a_outer, a_inner = build_outer_inner(img_paths; downsample=surface_downsample)
+
+# Downsampling is in-plane only, so x/y spacings scale by the stride; z is unchanged.
+sdx, sdy = dx * surface_downsample, dy * surface_downsample
+outer_dt_S, inner_dt_S = compute_EDT_S_py(a_outer, a_inner; dx=sdx, dy=sdy, dz=dz)
+ϕ = compute_ϕ_stack_3D(outer_dt_S, inner_dt_S, surface_tvals)
+
+f2 = Figure()
+ax = Axis3(f2[1, 1]; title = "Formation front — $dataset")
+plot_3d_surfaces!(ax, ϕ, surface_tvals; dx=sdx, dy=sdy, dz=dz, σ_μm=2.0)
 display(f2)
