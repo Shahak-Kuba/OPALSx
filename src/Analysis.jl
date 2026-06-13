@@ -629,7 +629,7 @@ Both are returned as vectors in the input order, in units of µm⁻¹.
 
 Arguments
 - `t_form_ordered`        : formation times `tᵢ ∈ [0, 1]`
-- `outer_dt_S`, `inner_dt_S` : signed distance volumes (see [`LevelSet.compute_EDT_S_py`](@ref))
+- `outer_dt_S`, `inner_dt_S` : signed distance volumes (see [`LevelSet.compute_EDT_S`](@ref))
 - `Ocy_pos_voxel_ordered` : matching `(x, y, z)` voxel indices
 - `dx, dy, dz`            : voxel spacings in µm
 - `σ_μm`                  : Gaussian smoothing radius in µm

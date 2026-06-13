@@ -16,14 +16,12 @@
 # (the script activates the OPALSx project itself, so --project is optional).
 #
 # ── One-time setup on the HPC (do this on a LOGIN node with internet) ─────────
-# Compute nodes usually have no internet, but Pkg and CondaPkg need it to fetch
-# packages. Build everything once on the login node:
+# Compute nodes usually have no internet, but Pkg needs it to fetch packages.
+# Build/precompile everything once on the login node:
 #   cd /path/to/OPALSx
-#   julia --project=. -e 'using Pkg; Pkg.instantiate()'
-#   julia --project=. -e 'using CondaPkg; CondaPkg.resolve()'   # builds .CondaPkg (numpy/scipy)
-# After that, the .CondaPkg/ and compiled packages are on disk; on the compute
-# node you can optionally force offline mode by setting, before julia starts:
-#   export JULIA_CONDAPKG_OFFLINE=true
+#   julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+# The distance transform is now native Julia (no SciPy/Conda), so no conda
+# environment is needed on the compute node.
 # =============================================================================
 
 import Pkg
@@ -140,7 +138,7 @@ for (di, name) in enumerate(datasets)
     println("  Masks built from $(length(img_paths)) slices ($(round(time() - t0; digits=1)) s)")
 
     t0 = time()
-    outer_dt_S, inner_dt_S = compute_EDT_S_py(a_outer, a_inner; dx, dy, dz)
+    outer_dt_S, inner_dt_S = compute_EDT_S(a_outer, a_inner; dx, dy, dz)
     println("  Anisotropic distance transforms done ($(round(time() - t0; digits=1)) s)")
 
     t_form   = estimate_Ocy_formation_time(outer_dt_S, inner_dt_S, Ocy_pos_voxel)
@@ -188,7 +186,7 @@ if SAVE_SURFACE_3D
     println("\nBuilding 3-D formation-front surface for $SURFACE_DATASET …")
     img_paths = readdir(joinpath(DATA_DIR, SURFACE_DATASET, "Processed_Images"); join=true)
     a_outer, a_inner = build_outer_inner(img_paths)
-    outer_dt_S, inner_dt_S = compute_EDT_S_py(a_outer, a_inner; dx, dy, dz)
+    outer_dt_S, inner_dt_S = compute_EDT_S(a_outer, a_inner; dx, dy, dz)
     out = joinpath(OUT_DIR, "formation_front_$(SURFACE_DATASET).png")
     save_formation_surface(out, outer_dt_S, inner_dt_S, SURFACE_TVALS;
                            dx=dx, dy=dy, dz=dz, σ_μm=σ_smooth, downsample=SURFACE_DOWNSAMPLE)

@@ -18,7 +18,7 @@ included and re-exported here:
 - [`OPALSx.Plotting`](@ref) – GLMakie helpers for 3-D contours and isosurfaces.
 
 # Usage
-The package defines a Julia environment (see `Project.toml` / `CondaPkg.toml`).
+The package defines a Julia environment (see `Project.toml`).
 Analysis scripts under `scripts/` activate this environment and `include` the
 submodules directly, e.g.
 
@@ -53,7 +53,7 @@ export
     # Imaging — segmented stacks → outer/inner masks
     generate_RG_img_from_data, extract_sample_name, build_outer_inner, circle_mask,
     # LevelSet — signed distance fields and the level-set field ϕ
-    edt, edt_S, edt_S_py, compute_EDT_S_py, ϕ_func, compute_ϕ_at_t, compute_ϕ_stack,
+    edt, edt_S, edt_aniso, edt_S_aniso, compute_EDT_S, ϕ_func, compute_ϕ_at_t, compute_ϕ_stack,
     compute_ϕ_at_t_3D, compute_ϕ_stack_3D, estimate_Ocy_formation_time, smooth_ϕ,
     # Geometry — contours, centroids, cutting planes, projections
     compute_zero_contour_xy_coords, Ω, compute_xy_center, Plane,

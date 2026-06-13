@@ -14,19 +14,19 @@ it coincides with the cement line (outer boundary) and at `t = 1` with the
 Haversian-canal wall (inner boundary), so `t` acts as a normalised formation
 time that increases inward as the osteon infills. The module provides 2-D
 (slice-wise) and 3-D builders, isotropic ([`edt_S`](@ref)) and anisotropic
-([`edt_S_py`](@ref), via SciPy) signed distance transforms, an osteocyte
-formation-time estimator, and Gaussian smoothing of `ϕ` prior to curvature
-extraction.
+([`edt_S_aniso`](@ref)) signed distance transforms — the anisotropic one is a
+native, exact, weighted Felzenszwalb–Huttenlocher transform (no Python) — an
+osteocyte formation-time estimator, and Gaussian smoothing of `ϕ` prior to
+curvature extraction.
 """
 module LevelSet
 
-export edt, edt_S, edt_S_py, compute_EDT_S_py,
+export edt, edt_S, edt_aniso, edt_S_aniso, compute_EDT_S,
        ϕ_func, compute_ϕ_at_t, compute_ϕ_stack, compute_ϕ_at_t_3D, compute_ϕ_stack_3D,
        estimate_Ocy_formation_time, smooth_ϕ
 
 using DistanceTransforms
 using ImageFiltering
-using PythonCall
 
 """
     edt(mask) -> Array{Float32}
@@ -183,7 +183,7 @@ embedded, from its position between the cement line and the Haversian canal.
 
 `outer_dt_S` and `inner_dt_S` are the **precomputed signed distance fields** of
 the outer (cement-line) and inner (canal) masks — e.g. from [`edt_S`](@ref)
-(isotropic) or [`compute_EDT_S_py`](@ref) (anisotropic). For each voxel position
+(isotropic) or [`compute_EDT_S`](@ref) (anisotropic). For each voxel position
 `(x, y, z)` in `Ocy_pos_voxel`,
 
     t = s_out / (s_out + s_in),
@@ -208,41 +208,109 @@ function estimate_Ocy_formation_time(outer_dt_S, inner_dt_S, Ocy_pos_voxel)
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Anisotropic signed distance transform (SciPy)
+# Anisotropic signed distance transform (native Felzenszwalb–Huttenlocher)
 #
-# DistanceTransforms.jl assumes isotropic voxels. Confocal osteon stacks are
-# anisotropic (dz ≠ dx, dy), so the signed distance transform is computed with
-# SciPy's `distance_transform_edt`, which accepts per-axis sampling.
+# DistanceTransforms.jl assumes isotropic voxels, and ImageMorphology's weighted
+# feature transform is not exact for anisotropic data. Confocal osteon stacks are
+# anisotropic (dz ≠ dx, dy), so we use a native, exact, separable squared-EDT:
+# the classic Felzenszwalb–Huttenlocher 1-D transform applied along each axis,
+# with that axis's parabola weighted by its spacing² (w²·(p−q)²). This is O(N),
+# pure Julia (no Python), and matches SciPy's anisotropic EDT to ~1e-13.
 # ─────────────────────────────────────────────────────────────────────────────
 
-"""
-    edt_S_py(mask; dx=0.379, dy=0.379, dz=0.4) -> Array{Float32,3}
-
-Signed **anisotropic** Euclidean distance transform of a 3-D Boolean `mask`,
-computed via SciPy with physical voxel spacings `(dx, dy, dz)` in µm.
-
-Returns `dout - din` (distance-outside minus distance-inside): positive outside
-the `true` region and negative inside, matching the sign convention of the
-isotropic [`edt_S`](@ref). Use this when `dz ≠ dx, dy`.
-"""
-function edt_S_py(mask::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
-    nd   = pyimport("scipy.ndimage")
-    A    = Array{Bool}(mask)
-    din  = nd.distance_transform_edt( A;  sampling=(dx, dy, dz))
-    dout = nd.distance_transform_edt(.!A; sampling=(dx, dy, dz))
-    return pyconvert(Array{Float32,3}, dout .- din)
+# 1-D lower-envelope-of-parabolas transform: d[p] = minₚ f[q] + w2·(p−q)².
+# `f` is the input cost vector, `d` the output, `v`/`z` are scratch buffers
+# (parabola apex indices and intersection abscissae) sized ≥ length(f).
+@inline function _edt1d!(d, f, w2, v, z)
+    n = length(f)
+    k = 1
+    v[1] = 1; z[1] = -Inf; z[2] = Inf
+    @inbounds for q in 2:n
+        s = ((f[q] + w2*q*q) - (f[v[k]] + w2*v[k]*v[k])) / (2*w2*(q - v[k]))
+        while s <= z[k]
+            k -= 1
+            s = ((f[q] + w2*q*q) - (f[v[k]] + w2*v[k]*v[k])) / (2*w2*(q - v[k]))
+        end
+        k += 1; v[k] = q; z[k] = s; z[k+1] = Inf
+    end
+    k = 1
+    @inbounds for q in 1:n
+        while z[k+1] < q
+            k += 1
+        end
+        dq = q - v[k]
+        d[q] = w2*dq*dq + f[v[k]]
+    end
+    return d
 end
 
 """
-    compute_EDT_S_py(outer, inner; dx=0.379, dy=0.379, dz=0.4) -> (outer_dt_S, inner_dt_S)
+    edt_aniso(seed; dx=0.379, dy=0.379, dz=0.4) -> Array{Float64,3}
+
+Unsigned **anisotropic** Euclidean distance transform of a 3-D Boolean `seed`:
+each cell holds the physical distance (µm) to the nearest `true` cell, using
+per-axis voxel spacings `(dx, dy, dz)`. Exact, via a separable, weighted
+Felzenszwalb–Huttenlocher squared-distance transform along each axis.
+"""
+function edt_aniso(seed::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
+    H, W, D = size(seed)
+    f = Array{Float64,3}(undef, H, W, D)
+    @inbounds for I in eachindex(seed)
+        f[I] = seed[I] ? 0.0 : 1e20      # 0 at features, ~∞ elsewhere
+    end
+
+    nmax = max(H, W, D)
+    v   = Vector{Int}(undef, nmax)
+    z   = Vector{Float64}(undef, nmax + 1)
+    col = Vector{Float64}(undef, nmax)
+    out = Vector{Float64}(undef, nmax)
+
+    # Pass along dim 1 (spacing dx), then dim 2 (dy), then dim 3 (dz).
+    w2 = dx*dx
+    @inbounds for k in 1:D, j in 1:W
+        for i in 1:H; col[i] = f[i,j,k]; end
+        _edt1d!(view(out,1:H), view(col,1:H), w2, v, z)
+        for i in 1:H; f[i,j,k] = out[i]; end
+    end
+    w2 = dy*dy
+    @inbounds for k in 1:D, i in 1:H
+        for j in 1:W; col[j] = f[i,j,k]; end
+        _edt1d!(view(out,1:W), view(col,1:W), w2, v, z)
+        for j in 1:W; f[i,j,k] = out[j]; end
+    end
+    w2 = dz*dz
+    @inbounds for j in 1:W, i in 1:H
+        for k in 1:D; col[k] = f[i,j,k]; end
+        _edt1d!(view(out,1:D), view(col,1:D), w2, v, z)
+        for k in 1:D; f[i,j,k] = out[k]; end
+    end
+
+    @inbounds for I in eachindex(f); f[I] = sqrt(f[I]); end
+    return f
+end
+
+"""
+    edt_S_aniso(mask; dx=0.379, dy=0.379, dz=0.4) -> Array{Float64,3}
+
+Signed **anisotropic** Euclidean distance transform of a 3-D Boolean `mask`:
+positive outside the `true` region and negative inside, defined as
+`edt_aniso(mask) - edt_aniso(.!mask)` with physical voxel spacings `(dx, dy, dz)`
+in µm. The anisotropic counterpart of [`edt_S`](@ref); exact and pure Julia.
+"""
+function edt_S_aniso(mask::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
+    return edt_aniso(mask; dx, dy, dz) .- edt_aniso(.!mask; dx, dy, dz)
+end
+
+"""
+    compute_EDT_S(outer, inner; dx=0.379, dy=0.379, dz=0.4) -> (outer_dt_S, inner_dt_S)
 
 Signed anisotropic EDTs of the `outer` (cement-line) and `inner` (canal) Boolean
-masks, computed with [`edt_S_py`](@ref). The returned fields are the inputs to
-[`ϕ_func`](@ref) / [`estimate_Ocy_formation_time`](@ref).
+masks, computed natively with [`edt_S_aniso`](@ref) (no Python). The returned
+fields are the inputs to [`ϕ_func`](@ref) / [`estimate_Ocy_formation_time`](@ref).
 """
-function compute_EDT_S_py(outer, inner; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
-    outer_dt_S = edt_S_py(Array{Bool,3}(outer); dx, dy, dz)
-    inner_dt_S = edt_S_py(Array{Bool,3}(inner); dx, dy, dz)
+function compute_EDT_S(outer, inner; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
+    outer_dt_S = edt_S_aniso(Array{Bool,3}(outer); dx, dy, dz)
+    inner_dt_S = edt_S_aniso(Array{Bool,3}(inner); dx, dy, dz)
     return outer_dt_S, inner_dt_S
 end
 

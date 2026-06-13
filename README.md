@@ -14,7 +14,6 @@ canal wall (`t = 1`) over normalised formation time `t ∈ [0, 1]`.
 ```
 OPALSx/
 ├── Project.toml          Julia environment (package deps)
-├── CondaPkg.toml         Python deps (numpy, scipy) via CondaPkg/PythonCall
 ├── Manifest.toml         pinned dependency versions
 ├── src/
 │   ├── OPALSx.jl         top-level module — includes & re-exports the submodules
@@ -47,8 +46,8 @@ Requires Julia ≥ 1.9 (developed on 1.10). From the repository root:
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-This installs the Julia dependencies and, via `CondaPkg`, the Python packages
-(`numpy`, `scipy`) used for the anisotropic distance transform.
+This installs the Julia dependencies. There is **no Python dependency** — the
+anisotropic distance transform is implemented natively in Julia.
 
 ## Running the multi-osteon analysis
 
@@ -60,7 +59,7 @@ The script processes every dataset listed in its `datasets` array
 (default `["FM40-1-R1", "FM40-2-R2"]`). For each one it:
 
 1. loads the `Processed_Images` stack and builds the outer/inner masks;
-2. computes anisotropic signed distance transforms with SciPy (voxel spacing
+2. computes anisotropic signed distance transforms natively (voxel spacing
    `dx = dy = 0.379 µm`, `dz = 0.4 µm`);
 3. estimates each osteocyte's formation time from its position between the canal
    wall and cement line;
