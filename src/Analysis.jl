@@ -27,7 +27,7 @@ using ProgressMeter
 # to the enclosing module (OPALSx when loaded as a package, Main when the source
 # files are `include`d directly by a script), so this works in both cases —
 # provided LevelSet and Geometry are loaded first (they are, by include order).
-using ..LevelSet: ϕ_func, smooth_ϕ
+using ..LevelSet: smooth_ϕ
 using ..Geometry: compute_zero_contour_xy_coords
 
 export analysis_Tdelay_pairs, compute_curvature, compute_curvature_4th, compute_2D_curvature,
@@ -608,13 +608,19 @@ end
 Compute the 2-D contour curvature at each osteocyte's formation time and
 position.
 
-For osteocyte `i` the level-set field is built at its formation time `tᵢ`
-([`LevelSet.ϕ_func`](@ref)) and Gaussian-smoothed ([`LevelSet.smooth_ϕ`](@ref),
-radius `σ_μm` µm) to suppress the voxelisation staircase. The zero-level contour
-on the osteocyte's z-slice is extracted
-([`Geometry.compute_zero_contour_xy_coords`](@ref)), converted to physical µm,
-and its curvature computed ([`compute_2D_curvature`](@ref)). Two values are
-recorded per osteocyte:
+For osteocyte `i` the level-set field is built at its formation time `tᵢ`,
+Gaussian-smoothed ([`LevelSet.smooth_ϕ`](@ref), radius `σ_μm` µm) to suppress
+the voxelisation staircase, and its zero-level contour on the osteocyte's
+z-slice is extracted ([`Geometry.compute_zero_contour_xy_coords`](@ref)),
+converted to physical µm, and its curvature computed
+([`compute_2D_curvature`](@ref)).
+
+Only the osteocyte's own z-slice is needed, so the field is built and smoothed
+over just a **z-slab** spanning `±kz_half` slices around it (`kz_half` = the
+Gaussian's z half-width) and kept in `Float32`. Because the smoothing kernel
+reaches at most `kz_half` slices, the smoothed value at the centre slice is
+*identical* to smoothing the whole volume — but uses ~50–100× less memory and
+time. Two values are recorded per osteocyte:
 
 - `κ_at_osteocyte`   : curvature at the contour point nearest the osteocyte
 - `mean_available_κ` : mean curvature over the whole contour at that time
@@ -640,18 +646,30 @@ function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S
     κ_at_osteocyte   = Float64[]
     mean_available_κ = Float64[]
 
+    # z half-width of the smoothing kernel: the slab must extend this far on each
+    # side of the osteocyte's slice for the smoothed centre slice to be exact.
+    Z       = size(outer_dt_S, 3)
+    kz_half = (length(KernelFactors.gaussian((σ_μm/dx, σ_μm/dy, σ_μm/dz))[3]) - 1) ÷ 2
+
     prog = Progress(length(t_form_ordered); enabled=show_progress,
                     desc="  Curvature: ", showspeed=true)
 
     for (idx, t_formed) in enumerate(t_form_ordered)
-        ϕ        = ϕ_func(t_formed, outer_dt_S, inner_dt_S)
-        ϕ_smooth = smooth_ϕ(ϕ; dx=dx, dy=dy, dz=dz, σ_μm=σ_μm)
-
         z_layer     = Ocy_pos_voxel_ordered[idx][3]
         osteocyte_x = Ocy_pos_voxel_ordered[idx][1] * dx
         osteocyte_y = Ocy_pos_voxel_ordered[idx][2] * dy
 
-        X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer, idx)
+        # Build ϕ over just the z-slab around this osteocyte, fused into Float32
+        # (views avoid copying the slab out of the full volumes first).
+        z0 = max(1, z_layer - kz_half)
+        z1 = min(Z, z_layer + kz_half)
+        oa = @view outer_dt_S[:, :, z0:z1]
+        ia = @view inner_dt_S[:, :, z0:z1]
+        ϕ_slab   = @. Float32((1 - t_formed) * oa - t_formed * ia)
+        ϕ_smooth = smooth_ϕ(ϕ_slab; dx=dx, dy=dy, dz=dz, σ_μm=σ_μm)
+
+        # Contour the osteocyte's slice (its local index within the slab).
+        X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, idx)
         κ    = compute_2D_curvature(X .* dx, Y .* dy; k=40)
 
         push!(mean_available_κ, mean(κ))
