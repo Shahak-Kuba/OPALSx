@@ -125,7 +125,7 @@ end
 println("\nAll datasets processed.")
 
 # ── Plots ──────────────────────────────────────────────────────────────────────
-set_theme!(fontsize=30)
+set_theme!(fontsize=30, figure_padding=20)   # padding keeps axis labels/ticks off the figure edge
 
 # ── Figure 1: curvature vs formation time (scatter) ──────────────────────────
 f1 = Figure(size=(1400, 650))
@@ -183,8 +183,8 @@ outer_dt_S, inner_dt_S = compute_EDT_S(a_outer, a_inner; dx=sdx, dy=sdy, dz=dz)
 surface_cmap  = :jet
 surface_alpha = 0.7          # 1.0 = fully solid (hides inner shells); ~0.6–0.8 shows nesting
 
-f6 = Figure()
-ax = Axis3(f6[1, 1]; title = "Formation front — $dataset",
+f6 = Figure(size=(1000, 750))
+ax = Axis3(f6[1, 1]; title = "Formation front — $dataset", aspect=:data, viewmode=:fit,
            xlabel="x [µm]", ylabel="y [µm]", zlabel="z [µm]")
 plot_3d_surfaces!(ax, ϕ, surface_tvals;
                   dx=sdx, dy=sdy, dz=dz, σ_μm=σ_smooth,

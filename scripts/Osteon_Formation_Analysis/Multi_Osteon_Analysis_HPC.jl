@@ -176,16 +176,24 @@ function save_formation_surface(path, outer_dt_S, inner_dt_S, tvals;
     oa = @view outer_dt_S[1:s:end, 1:s:end, 1:s:end]
     ia = @view inner_dt_S[1:s:end, 1:s:end, 1:s:end]
 
+    # Physical-µm coordinate of each (strided) sample, so the surface is drawn to
+    # scale in µm rather than in Meshing's normalised cube. The stride scales the
+    # effective spacing on every axis (z is strided here too).
+    sdx, sdy, sdz = dx * s, dy * s, dz * s
+    H, W, D = size(oa)
+    X = (1:H) .* sdx;  Y = (1:W) .* sdy;  Z = (1:D) .* sdz
+
     fig = Figure(size=(900, 800))
-    ax  = Axis3(fig[1, 1]; title="Formation front", xlabel="x", ylabel="y", zlabel="z")
+    ax  = Axis3(fig[1, 1]; title="Formation front", aspect=:data, viewmode=:fit,
+                xlabel="x [µm]", ylabel="y [µm]", zlabel="z [µm]")
     cols = cgrad(:plasma, max(length(tvals), 2); categorical=true)
 
     for (i, t) in enumerate(tvals)
         ϕ = @. Float32((1 - t) * oa - t * ia)
         if σ_μm > 0                       # spacings scale with the stride
-            ϕ = smooth_ϕ(ϕ; dx=dx*s, dy=dy*s, dz=dz*s, σ_μm=σ_μm)
+            ϕ = smooth_ϕ(ϕ; dx=sdx, dy=sdy, dz=sdz, σ_μm=σ_μm)
         end
-        verts, faces = isosurface(ϕ, MarchingCubes())
+        verts, faces = isosurface(ϕ, MarchingCubes(), X, Y, Z)   # vertices in µm
         isempty(verts) && continue
         pts  = [Point3f(v...)        for v in verts]
         tris = [TriangleFace{Int}(f...) for f in faces]
@@ -245,7 +253,7 @@ CSV.write(joinpath(OUT_DIR, "curvature_results.csv"), results)
 println("Saved $(joinpath(OUT_DIR, "curvature_results.csv"))")
 
 # ── Curvature figure (2-D, CairoMakie) ───────────────────────────────────────
-set_theme!(theme_black(), fontsize=30)
+set_theme!(fontsize=30, figure_padding=20)   # padding keeps axis labels/ticks off the figure edge
 
 f1 = Figure(size=(1400, 650))
 a1 = Axis(f1[1, 1], xlabel="t_form", ylabel="κ  [µm⁻¹]",          title="Curvature at osteocyte")
@@ -276,15 +284,20 @@ f5 = plot_curvature_density(κ_at_osteocyte_all, mean_available_κ_all, dataset_
 save(joinpath(OUT_DIR, "curvature_density.png"), f5; px_per_unit=3)
 println("Saved $(joinpath(OUT_DIR, "curvature_density.png"))")
 
+# ── Curvature KDE (relative=true → κ_at_osteocyte - mean_available_κ) ───
+f6 = plot_curvature_density(κ_at_osteocyte_all, mean_available_κ_all, dataset_labels; relative=true)
+save(joinpath(OUT_DIR, "curvature_density_relative.png"), f6; px_per_unit=3)
+println("Saved $(joinpath(OUT_DIR, "curvature_density_relative.png"))")
+
 # ── Curvature per formation-time bracket (violin + boxplot) ──────────────────
-f6 = plot_curvature_by_time_bracket(t_form_all, κ_at_osteocyte_all, mean_available_κ_all;
+f7 = plot_curvature_by_time_bracket(t_form_all, κ_at_osteocyte_all, mean_available_κ_all;
                                     relative=false, nbrackets=4)
-save(joinpath(OUT_DIR, "curvature_by_time_bracket.png"), f6; px_per_unit=3)
+save(joinpath(OUT_DIR, "curvature_by_time_bracket.png"), f7; px_per_unit=3)
 println("Saved $(joinpath(OUT_DIR, "curvature_by_time_bracket.png"))")
 
 # ── Formation-time ECDF vs the uniform reference (diagonal) ──────────────────
-f7 = plot_formation_time_ecdf(t_form_all, dataset_labels)
-save(joinpath(OUT_DIR, "formation_time_ecdf.png"), f7; px_per_unit=3)
+f8 = plot_formation_time_ecdf(t_form_all, dataset_labels)
+save(joinpath(OUT_DIR, "formation_time_ecdf.png"), f8; px_per_unit=3)
 println("Saved $(joinpath(OUT_DIR, "formation_time_ecdf.png"))")
 
 # ── Formation-front surface (3-D, headless via marching cubes) ───────────────

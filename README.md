@@ -118,6 +118,21 @@ scp -r your_user@hpc.address:/path/to/OPALSx/output/FM40_k30 ~/Downloads/    # o
 (replace `your_user`, `hpc.address` and the path; for a timestamped run use that
 run's name instead of `FM40_k30`).
 
+### Sweeping several curvature scales at once
+
+`hpc/run_k_scale_sweep.sh` launches one detached `screen` session per
+`k_scale_um` value, each running the HPC script with that scale into its own
+`output/k<value>/` folder and log. Edit `k_scale_um_array` (and `datasets`) at
+the top of the script, then:
+
+```bash
+./hpc/run_k_scale_sweep.sh                      # uses the settings in the file
+./hpc/run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2  # override datasets (1st arg)
+```
+
+Monitor with `screen -ls`, attach with `screen -r opalsx_k<value>` (detach again
+with `Ctrl-a` then `d`), or follow a log with `tail -f output/logs/k<value>.log`.
+
 To analyse other samples, drop their `Processed_Images/` folder and
 `cells_<name>_.csv` under `DATA/<name>/` and pass them via `--datasets` (or edit
 the default `datasets` in the script).
