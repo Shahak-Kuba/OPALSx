@@ -20,13 +20,14 @@ module Plotting
 using Makie                   # backend-agnostic API (GLMakie or CairoMakie supplies the backend)
 using ImageFiltering
 using Meshing                 # marching-cubes isosurface extraction
+using KernelDensity           # the same KDE engine `density!` uses (Gaussian kernel)
 import GeometryBasics         # Mesh / TriangleFace (qualified to avoid clashing with Makie exports)
 import Contour as CTR
 
 export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!, plot_α_β!,
        plot_3d_surfaces!, plot_osteocyte_distribution,
        plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
-       plot_curvature_by_time_bracket, plot_formation_time_ecdf
+       plot_curvature_by_time_bracket, plot_formation_time_ecdf, pooled_kde
 
 """
     plot_3d_contours!(ax, ϕ, Δz, tvals)
@@ -326,6 +327,35 @@ end
 _pool_curvature(κ_at_all, mean_κ_all, relative) =
     relative ? reduce(vcat, [κ_at_all[i] .- mean_κ_all[i] for i in eachindex(κ_at_all)]) :
                reduce(vcat, [collect(κ_at_all[i])          for i in eachindex(κ_at_all)])
+
+"""
+    pooled_kde(data; npoints=200, bandwidth=nothing) -> (x, density, bandwidth)
+
+Compute the **same kernel-density estimate that `density!` draws** for the pooled
+data — i.e. the bold "all pooled" curve in the density figures — and return it as
+numbers you can export, integrate or overlay.
+
+`data` is either a flat vector or a vector-of-vectors (it is pooled with
+`reduce(vcat, …)`, matching how the plots pool all datasets). The KDE uses a
+**Normal (Gaussian) kernel** and, by default, **Silverman's rule-of-thumb
+bandwidth** `0.9·min(σ, IQR/1.34)·n^(-1/5)` (`KernelDensity.default_bandwidth`),
+exactly as Makie's `density!`. Pass `bandwidth` to override it, and `npoints` to
+set the number of evaluation points (Makie's default is 200).
+
+Returns a named tuple `(x, density, bandwidth)`: `x` the evaluation grid,
+`density` the estimated pdf there (∫ density dx ≈ 1), and the bandwidth used.
+
+```julia
+k = pooled_kde(t_form_all)                 # the formation-time KDE
+CSV.write("kde.csv", DataFrame(x=k.x, density=k.density))   # export it
+```
+"""
+function pooled_kde(data; npoints::Integer = 200, bandwidth = nothing)
+    pooled = data isa AbstractVector{<:Real} ? float.(collect(data)) : reduce(vcat, data)
+    h = bandwidth === nothing ? KernelDensity.default_bandwidth(pooled) : float(bandwidth)
+    U = KernelDensity.kde(pooled; npoints = npoints, bandwidth = h)
+    return (x = collect(U.x), density = collect(U.density), bandwidth = h)
+end
 
 """
     plot_formation_time_density(t_form_all, labels) -> Figure

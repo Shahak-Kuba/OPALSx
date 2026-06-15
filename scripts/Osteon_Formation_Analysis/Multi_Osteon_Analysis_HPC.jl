@@ -252,6 +252,30 @@ end
 CSV.write(joinpath(OUT_DIR, "curvature_results.csv"), results)
 println("Saved $(joinpath(OUT_DIR, "curvature_results.csv"))")
 
+# ── Export the KDE curves to CSV ─────────────────────────────────────────────
+# The same Gaussian / Silverman-bandwidth KDE the density figures draw, as
+# numbers: one tidy file with per-dataset and pooled curves for each quantity.
+"Tidy DataFrame of per-dataset + pooled KDE curves for `variable`."
+function kde_table(variable, data_all, labels)
+    df = DataFrame(variable=String[], group=String[], x=Float64[], density=Float64[], bandwidth=Float64[])
+    for i in eachindex(labels)
+        k = pooled_kde(data_all[i]); n = length(k.x)
+        append!(df, DataFrame(variable=fill(variable,n), group=fill(string(labels[i]),n),
+                              x=k.x, density=k.density, bandwidth=fill(k.bandwidth,n)))
+    end
+    kp = pooled_kde(data_all); n = length(kp.x)
+    append!(df, DataFrame(variable=fill(variable,n), group=fill("pooled",n),
+                          x=kp.x, density=kp.density, bandwidth=fill(kp.bandwidth,n)))
+    return df
+end
+
+Δκ_all = [κ_at_osteocyte_all[i] .- mean_available_κ_all[i] for i in eachindex(κ_at_osteocyte_all)]
+kde_df = vcat(kde_table("formation_time",   t_form_all,         dataset_labels),
+              kde_table("kappa",            κ_at_osteocyte_all, dataset_labels),
+              kde_table("kappa_minus_mean", Δκ_all,             dataset_labels))
+CSV.write(joinpath(OUT_DIR, "kde_curves.csv"), kde_df)
+println("Saved $(joinpath(OUT_DIR, "kde_curves.csv"))")
+
 # ── Curvature figure (2-D, CairoMakie) ───────────────────────────────────────
 set_theme!(fontsize=30, figure_padding=20)   # padding keeps axis labels/ticks off the figure edge
 

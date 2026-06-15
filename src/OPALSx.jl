@@ -67,6 +67,6 @@ export
     plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!,
     plot_α_β!, plot_3d_surfaces!, plot_osteocyte_distribution,
     plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
-    plot_curvature_by_time_bracket, plot_formation_time_ecdf
+    plot_curvature_by_time_bracket, plot_formation_time_ecdf, pooled_kde
 
 end # module OPALSx
