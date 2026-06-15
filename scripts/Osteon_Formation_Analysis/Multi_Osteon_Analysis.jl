@@ -18,7 +18,7 @@ datasets = ["FM40-1-R1", "FM40-1-R2", "FM40-2-R2"]
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
 # voxel spacings [µm]
-dx = 0.379; dy = 0.379; dz = 0.4   # voxel spacings [µm]
+dx = 0.379; dy = 0.379; dz = 0.358   # voxel spacings [µm]
 # Gaussian σ [µm] applied to ϕ before curvature
 σ_smooth = 2.0                     
 # arc length [µm] over which curvature is measured (~osteocyte size)

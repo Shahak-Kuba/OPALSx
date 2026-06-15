@@ -133,6 +133,33 @@ the top of the script, then:
 Monitor with `screen -ls`, attach with `screen -r opalsx_k<value>` (detach again
 with `Ctrl-a` then `d`), or follow a log with `tail -f output/logs/k<value>.log`.
 
+### Comparing curvature scales on one dataset
+
+To sweep several `k_scale_um` values on a *single* dataset and get **comparison
+figures across scales** in one run, use `kScale_Sweep_HPC.jl` (it computes the
+masks / distance transforms / formation times once and only repeats the
+curvature step per scale):
+
+```bash
+julia --project=hpc scripts/Osteon_Formation_Analysis/kScale_Sweep_HPC.jl \
+      --dataset=FM40-1-R1 --k=20,60,100 --run=FM40-1-R1_ksweep
+# or launch it in a detached screen:
+./hpc/run_kscale_single_dataset.sh FM40-1-R1 20,60,100
+```
+
+For interactive/local use there's `kScale_Sweep.jl` (GLMakie by default; edit
+`dataset` and `k_scale_um_array` at the top):
+
+```bash
+julia --project=. scripts/Osteon_Formation_Analysis/kScale_Sweep.jl
+```
+
+Outputs (in `output/<run>/`, plus a `.zip`): `curvature_vs_tform_by_scale.png`,
+`curvature_density_by_scale.png`, `curvature_rel_density_by_scale.png`,
+`curvature_by_scale.png` (violin/box per scale), `formation_time_density.png`,
+and long-format `curvature_results.csv` / `kde_curves.csv` with a `k_scale_um`
+column.
+
 To analyse other samples, drop their `Processed_Images/` folder and
 `cells_<name>_.csv` under `DATA/<name>/` and pass them via `--datasets` (or edit
 the default `datasets` in the script).

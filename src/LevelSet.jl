@@ -245,14 +245,14 @@ end
 end
 
 """
-    edt_aniso(seed; dx=0.379, dy=0.379, dz=0.4) -> Array{Float64,3}
+    edt_aniso(seed; dx=0.379, dy=0.379, dz=0.358) -> Array{Float64,3}
 
 Unsigned **anisotropic** Euclidean distance transform of a 3-D Boolean `seed`:
 each cell holds the physical distance (µm) to the nearest `true` cell, using
 per-axis voxel spacings `(dx, dy, dz)`. Exact, via a separable, weighted
 Felzenszwalb–Huttenlocher squared-distance transform along each axis.
 """
-function edt_aniso(seed::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
+function edt_aniso(seed::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, dz::Real=0.358)
     H, W, D = size(seed)
     f = Array{Float64,3}(undef, H, W, D)
     @inbounds for I in eachindex(seed)
@@ -290,25 +290,25 @@ function edt_aniso(seed::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, 
 end
 
 """
-    edt_S_aniso(mask; dx=0.379, dy=0.379, dz=0.4) -> Array{Float64,3}
+    edt_S_aniso(mask; dx=0.379, dy=0.379, dz=0.358) -> Array{Float64,3}
 
 Signed **anisotropic** Euclidean distance transform of a 3-D Boolean `mask`:
 positive outside the `true` region and negative inside, defined as
 `edt_aniso(mask) - edt_aniso(.!mask)` with physical voxel spacings `(dx, dy, dz)`
 in µm. The anisotropic counterpart of [`edt_S`](@ref); exact and pure Julia.
 """
-function edt_S_aniso(mask::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
+function edt_S_aniso(mask::AbstractArray{Bool,3}; dx::Real=0.379, dy::Real=0.379, dz::Real=0.358)
     return edt_aniso(mask; dx, dy, dz) .- edt_aniso(.!mask; dx, dy, dz)
 end
 
 """
-    compute_EDT_S(outer, inner; dx=0.379, dy=0.379, dz=0.4) -> (outer_dt_S, inner_dt_S)
+    compute_EDT_S(outer, inner; dx=0.379, dy=0.379, dz=0.358) -> (outer_dt_S, inner_dt_S)
 
 Signed anisotropic EDTs of the `outer` (cement-line) and `inner` (canal) Boolean
 masks, computed natively with [`edt_S_aniso`](@ref) (no Python). The returned
 fields are the inputs to [`ϕ_func`](@ref) / [`estimate_Ocy_formation_time`](@ref).
 """
-function compute_EDT_S(outer, inner; dx::Real=0.379, dy::Real=0.379, dz::Real=0.4)
+function compute_EDT_S(outer, inner; dx::Real=0.379, dy::Real=0.379, dz::Real=0.358)
     outer_dt_S = Float32.(edt_S_aniso(Array{Bool,3}(outer); dx, dy, dz))
     inner_dt_S = Float32.(edt_S_aniso(Array{Bool,3}(inner); dx, dy, dz))
     return outer_dt_S, inner_dt_S
@@ -330,7 +330,7 @@ memory (~5× less here) — important because this is called once per osteocyte.
 The standard deviation `σ_μm` is specified in **physical µm** and converted to
 per-axis voxel units `(σ_μm/dx, σ_μm/dy, σ_μm/dz)`, so the blur is isotropic
 in real space even when the voxel spacings differ (e.g. dx = dy = 0.379 µm,
-dz = 0.4 µm).
+dz = 0.358 µm).
 
 Smoothing ϕ before extracting zero-level contours removes the staircase
 artefacts that arise from the discrete, voxelised binary masks used to build
@@ -346,11 +346,11 @@ X, Y    = compute_zero_contour_xy_coords(ϕ, z_layer, idx)
 
 Arguments
 - `ϕ`     : 3-D level-set field (H × W × Z)
-- `dx, dy, dz` : voxel spacings in µm (default 0.379, 0.379, 0.4)
+- `dx, dy, dz` : voxel spacings in µm (default 0.379, 0.379, 0.358)
 - `σ_μm`  : smoothing radius in physical µm
 """
 function smooth_ϕ(ϕ::AbstractArray{<:Real,3};
-                   dx::Real=0.379, dy::Real=0.379, dz::Real=0.4,
+                   dx::Real=0.379, dy::Real=0.379, dz::Real=0.358,
                    σ_μm::Real=1.0)
     kernel = KernelFactors.gaussian((σ_μm/dx, σ_μm/dy, σ_μm/dz))
     return Float32.(imfilter(ϕ, kernel))

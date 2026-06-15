@@ -27,7 +27,7 @@ import Contour as CTR
 export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!, plot_α_β!,
        plot_3d_surfaces!, plot_osteocyte_distribution,
        plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
-       plot_curvature_by_time_bracket, plot_formation_time_ecdf, pooled_kde
+       plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde
 
 """
     plot_3d_contours!(ax, ϕ, Δz, tvals)
@@ -64,7 +64,7 @@ remove staircase artefacts that arise from the discrete voxel grid.
 The standard deviation `σ_μm` is given in **physical units (µm)** and is
 converted to voxel units per axis using the supplied spacings `dx`, `dy`, `dz`.
 This ensures the smoothing is spatially isotropic even when the voxel
-dimensions differ (e.g. dx = dy = 0.379 µm, dz = 0.4 µm).
+dimensions differ (e.g. dx = dy = 0.379 µm, dz = 0.358 µm).
 
 A σ of ~1 µm removes the staircase while preserving the macro-scale surface
 shape; increase to ~2 µm for heavier smoothing.
@@ -73,7 +73,7 @@ Uses a **separable** kernel (`KernelFactors.gaussian`), applied as three 1-D
 passes — equivalent to a dense 3-D Gaussian but with far lower memory use.
 """
 function smooth_levelset(ϕ3d::AbstractArray{<:Real,3};
-                          dx::Real=0.379, dy::Real=0.379, dz::Real=0.4,
+                          dx::Real=0.379, dy::Real=0.379, dz::Real=0.358,
                           σ_μm::Real=1.0)
     # Convert physical σ to per-axis voxel σ
     σ_vox = (σ_μm/dx, σ_μm/dy, σ_μm/dz)
@@ -131,7 +131,7 @@ Keyword arguments
 """
 function plot_3d_surfaces!(ax, ϕ::AbstractArray{<:Real,4},
                             tvals::AbstractVector;
-                            dx::Real=0.379, dy::Real=0.379, dz::Real=0.4,
+                            dx::Real=0.379, dy::Real=0.379, dz::Real=0.358,
                             σ_μm::Real=1.0, colormap=:plasma, alpha::Real=0.7,
                             show_osteocytes::Bool=false,
                             osteocytes=nothing,
@@ -467,6 +467,41 @@ function plot_formation_time_ecdf(t_form_all, labels)
     ecdfplot!(ax, reduce(vcat, t_form_all); color = :black, linewidth = 3, label = "all datasets")
     xlims!(ax, 0, 1); ylims!(ax, 0, 1)
     axislegend(ax; position = :lt, framevisible = false)
+    return fig
+end
+
+"""
+    plot_curvature_by_scale(k_values, κ_at_per_k, mean_κ_per_k; relative=true) -> Figure
+
+Compare the osteocyte curvature distribution measured at several `k_scale_um`
+values **on one dataset** — one violin + boxplot per scale, so you can see how
+the magnitude and spread of curvature change with the measurement scale.
+
+- `relative=true` (default): Δκ = κ − mean_κ (dashed line at 0 = the contour mean)
+- `relative=false`: absolute κ (sign separates convex > 0 from concave < 0)
+
+`κ_at_per_k` / `mean_κ_per_k` are vectors-of-vectors, one entry per `k_values`.
+Backend-agnostic.
+"""
+function plot_curvature_by_scale(k_values, κ_at_per_k, mean_κ_per_k; relative::Bool = true)
+    @assert length(k_values) == length(κ_at_per_k) == length(mean_κ_per_k)
+    yvals = relative ? [κ_at_per_k[i] .- mean_κ_per_k[i] for i in eachindex(κ_at_per_k)] :
+                       [collect(κ_at_per_k[i])           for i in eachindex(κ_at_per_k)]
+    ylab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
+
+    cat = Int[]; vals = Float64[]
+    for i in eachindex(k_values)
+        append!(cat,  fill(i, length(yvals[i])))
+        append!(vals, yvals[i])
+    end
+    ticks = [isinteger(k) ? string(Int(k)) : string(k) for k in k_values]
+
+    fig = Figure(size = (950, 600))
+    ax  = Axis(fig[1, 1]; xlabel = "k_scale_um   [µm]", ylabel = ylab,
+               xticks = (1:length(k_values), ticks), title = "Curvature vs measurement scale")
+    violin!(ax, cat, vals; color = (:dodgerblue, 0.35), width = 0.8)
+    boxplot!(ax, cat, vals; width = 0.25, color = :dodgerblue, strokecolor = :black, markersize = 4)
+    hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
     return fig
 end
 

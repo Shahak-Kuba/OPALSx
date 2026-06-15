@@ -477,13 +477,13 @@ Arguments
 - `ϕ`          : 3-D level-set field (H × W × Z) at the formation time of interest
 - `ix, iy, iz` : 1-based voxel indices (must be ≥ 2 from any edge for order=2,
                  ≥ 3 from any edge for order=4)
-- `dx, dy, dz` : voxel spacings in µm (default 0.379, 0.379, 0.4)
+- `dx, dy, dz` : voxel spacings in µm (default 0.379, 0.379, 0.358)
 - `order`      : finite-difference order — 2 (standard) or 4 (higher accuracy)
 - `eps`        : floor added to |∇ϕ| to prevent division by zero at flat regions
 """
 function curvature_at_point(ϕ::AbstractArray{<:Real,3},
                              ix::Int, iy::Int, iz::Int;
-                             dx::Real=0.379, dy::Real=0.379, dz::Real=0.4,
+                             dx::Real=0.379, dy::Real=0.379, dz::Real=0.358,
                              order::Int=2, eps::Real=1e-12)
 
     nx, ny, nz = size(ϕ)
@@ -573,7 +573,7 @@ Arguments
 - `Ocy_pos_vox_ordered` : matching vector of (ix, iy, iz) voxel index tuples
 
 Keyword arguments
-- `dx, dy, dz` : voxel spacings in µm (default 0.379, 0.379, 0.4)
+- `dx, dy, dz` : voxel spacings in µm (default 0.379, 0.379, 0.358)
 - `σ_μm`       : Gaussian smoothing radius in physical µm before differentiation;
                  should match the σ_μm used in `plot_3d_surfaces!` for consistency.
                  Set to 0 to skip smoothing (not recommended — staircase artefacts
@@ -585,7 +585,7 @@ function estimate_osteocyte_curvature_3D(outer_dt_S::AbstractArray{<:Real,3},
                                           inner_dt_S::AbstractArray{<:Real,3},
                                           t_form_ordered::AbstractVector,
                                           Ocy_pos_vox_ordered::AbstractVector;
-                                          dx::Real=0.379, dy::Real=0.379, dz::Real=0.4,
+                                          dx::Real=0.379, dy::Real=0.379, dz::Real=0.358,
                                           σ_μm::Real=1.0,
                                           order::Int=2,
                                           eps::Real=1e-12)

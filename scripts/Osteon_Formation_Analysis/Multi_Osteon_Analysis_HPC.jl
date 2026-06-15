@@ -100,7 +100,7 @@ end
 datasets = cli_strings("--datasets", ["FM40-2-E5"])
 println("Datasets: ", join(datasets, ", "))
 
-dx = 0.379; dy = 0.379; dz = 0.4          # voxel spacings [µm]
+dx = 0.379; dy = 0.379; dz = 0.358        # voxel spacings [µm]
 σ_smooth = 2.0                             # Gaussian σ [µm] for the curvature step
 # arc length [µm] over which curvature is measured (~osteocyte size).
 # Override from the terminal, e.g.:  julia --project=hpc <script> --k_scale_um=30

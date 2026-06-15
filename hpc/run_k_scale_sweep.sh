@@ -8,8 +8,11 @@
 # output folder and log.
 #
 # Usage:
-#   ./run_k_scale_sweep.sh                          # use the settings below
-#   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2      # override datasets (1st arg)
+#   ./run_k_scale_sweep.sh                                  # use the settings below
+#   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2              # override datasets (1st arg)
+#   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 FM40_        # + run-folder prefix (2nd arg)
+# To set a prefix while keeping the default datasets, pass them explicitly:
+#   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 myprefix_
 #
 # Each value k gets:
 #   • its own screen session  opalsx_k<k>
@@ -21,7 +24,7 @@ set -euo pipefail
 # ── Settings ─────────────────────────────────────────────────────────────────
 k_scale_um_array=(20 60 100)                   # scales to sweep [µm]
 datasets="${1:-FM40-1-R1,FM40-2-R2}"           # comma-separated, NO spaces (1st CLI arg overrides)
-run_prefix=""                                   # output folder name = ${run_prefix}k<value>
+run_prefix="${2:-}"                             # output folder name = ${run_prefix}k<value> (2nd CLI arg overrides)
 JULIA="julia"                                    # julia command (or full path to the binary)
 PRECOMPILE=true                                  # precompile the env once before launching the screens
 
