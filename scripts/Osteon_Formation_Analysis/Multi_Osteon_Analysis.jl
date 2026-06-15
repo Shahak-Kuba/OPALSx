@@ -14,7 +14,7 @@
 #   DATA/<name>/cells_<name>_.csv   – osteocyte positions exported from Napari
 
 # ── Dataset list ───────────────────────────────────────────────────────────────
-datasets = ["FM40-1-R1", "FM40-1-R2", "FM40-2-R2"]
+datasets = ["FM40-2-S2"]
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
 # voxel spacings [µm]
