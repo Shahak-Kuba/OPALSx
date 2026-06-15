@@ -24,10 +24,18 @@ using KernelDensity           # the same KDE engine `density!` uses (Gaussian ke
 import GeometryBasics         # Mesh / TriangleFace (qualified to avoid clashing with Makie exports)
 import Contour as CTR
 
+# Cross-module helpers for the per-osteocyte diagnostics below. `..` resolves to
+# the enclosing module (OPALSx as a package, or Main when scripts `include` the
+# sources) — Plotting is always loaded after LevelSet/Geometry/Analysis.
+using ..LevelSet:  smooth_ϕ
+using ..Geometry:  compute_zero_contour_xy_coords
+using ..Analysis:  compute_2D_curvature
+
 export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!, plot_α_β!,
        plot_3d_surfaces!, plot_osteocyte_distribution,
        plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
-       plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde
+       plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
+       plot_osteocyte_contour, plot_smoothing_effect
 
 """
     plot_3d_contours!(ax, ϕ, Δz, tvals)
@@ -502,6 +510,154 @@ function plot_curvature_by_scale(k_values, κ_at_per_k, mean_κ_per_k; relative:
     violin!(ax, cat, vals; color = (:dodgerblue, 0.35), width = 0.8)
     boxplot!(ax, cat, vals; width = 0.25, color = :dodgerblue, strokecolor = :black, markersize = 4)
     hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
+    return fig
+end
+
+# z half-width of the smoothing kernel (slab radius) for a given σ and spacings.
+_kz_half(σ_μm, dx, dy, dz) = (length(KernelFactors.gaussian((σ_μm/dx, σ_μm/dy, σ_μm/dz))[3]) - 1) ÷ 2
+
+"""
+    plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                           Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; k_scale_um=15.0) -> Figure
+
+Visualise the exact 2-D contour on which osteocyte `idx`'s curvature is measured.
+`idx` indexes the **formation-time-ordered** vectors (same order as
+[`Analysis.compute_curvature_near_osteocyte`](@ref)), so it matches that
+function's outputs.
+
+The figure (in physical µm, equal aspect) shows:
+- the zero-level contour the curvature is computed along (black),
+- a marker at the osteocyte's position (red),
+- a light-grey reference circle of the **same curvature as the contour mean**
+  (radius = 1/|mean κ|), centred on the contour centroid, drawn behind.
+
+The title reports the mean available curvature for that contour.
+"""
+function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                                Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; k_scale_um = 15.0)
+    t       = t_form_ordered[idx]
+    z_layer = Ocy_pos_voxel_ordered[idx][3]
+    ox      = Ocy_pos_voxel_ordered[idx][1] * dx
+    oy      = Ocy_pos_voxel_ordered[idx][2] * dy
+
+    # Rebuild the smoothed z-slab exactly as compute_curvature_near_osteocyte does.
+    kz = _kz_half(σ_μm, dx, dy, dz)
+    Z  = size(outer_dt_S, 3)
+    z0 = max(1, z_layer - kz); z1 = min(Z, z_layer + kz)
+    oa = @view outer_dt_S[:, :, z0:z1]
+    ia = @view inner_dt_S[:, :, z0:z1]
+    ϕ_smooth = smooth_ϕ((@. Float32((1 - t) * oa - t * ia)); dx, dy, dz, σ_μm)
+
+    X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, 1)
+    Xµ, Yµ = X .* dx, Y .* dy
+    κ = compute_2D_curvature(copy(Xµ), copy(Yµ); arclen = k_scale_um)
+    mean_κ = sum(κ) / length(κ)
+    n = length(κ)
+    j = argmin(@. (Xµ[1:n] - ox)^2 + (Yµ[1:n] - oy)^2)   # nearest contour point to the osteocyte
+    κ_at = κ[j]
+
+    cx, cy = sum(Xµ) / length(Xµ), sum(Yµ) / length(Yµ)   # contour centroid
+
+    fig = Figure(size = (1150, 820))
+    ax  = Axis(fig[1, 1]; xlabel = "x [µm]", ylabel = "y [µm]", aspect = DataAspect(),
+               title = "Osteocyte $idx — mean κ = $(round(mean_κ; sigdigits=3)) µm⁻¹")
+    if mean_κ != 0                                          # grey reference circle of the mean curvature
+        R = 1 / abs(mean_κ)
+        θ = range(0, 2π; length = 200)
+        lines!(ax, cx .+ R .* cos.(θ), cy .+ R .* sin.(θ);
+               color = (:gray, 0.6), linewidth = 4, label = "circle of mean κ (R=$(round(R; sigdigits=3)) µm)")
+    end
+    lines!(ax, Xµ, Yµ; color = :black, linewidth = 3, label = "contour")
+    scatter!(ax, [ox], [oy]; color = :red, markersize = 18,
+             label = "osteocyte (κ=$(round(κ_at; sigdigits=3)))")
+    Legend(fig[1, 2], ax; framevisible = false)   # legend in its own column → never over the contour
+    return fig
+end
+
+"""
+    plot_smoothing_effect(t, outer_dt_S, inner_dt_S, z_layer, dx, dy, dz, σ_μm;
+                          inset_size_um=30.0, inset_center=nothing) -> Figure
+
+Show how Gaussian smoothing changes the zero contour (which the curvature is
+measured along) on slice `z_layer` at formation time `t`. Two side-by-side
+grayscale heatmaps of the level-set field ϕ — left: raw ϕ, right: smoothed ϕ
+(σ = `σ_μm` µm, the same 3-D slab smoothing used in the curvature step) — each
+with its zero contour drawn in red. Axes are in physical µm with equal aspect.
+
+Each panel also gets a **zoom inset in the bottom-right corner** showing the same
+`inset_size_um × inset_size_um` µm window around the contour (the box is marked
+on the main panel). The raw panel's inset reveals the jagged voxel-staircase
+contour; the smoothed panel's inset shows it rounded off. `inset_center` is an
+`(x, y)` µm point to zoom on (default: the rightmost point of the contour).
+"""
+function plot_smoothing_effect(t, outer_dt_S, inner_dt_S, z_layer, dx, dy, dz, σ_μm;
+                               inset_size_um::Real = 30.0, inset_center = nothing)
+    kz = _kz_half(σ_μm, dx, dy, dz)
+    Z  = size(outer_dt_S, 3)
+    z0 = max(1, z_layer - kz); z1 = min(Z, z_layer + kz)
+    oa = @view outer_dt_S[:, :, z0:z1]
+    ia = @view inner_dt_S[:, :, z0:z1]
+    ϕ_raw_slab = @. Float32((1 - t) * oa - t * ia)
+    ϕ_sm_slab  = smooth_ϕ(ϕ_raw_slab; dx, dy, dz, σ_μm)
+    zc = z_layer - z0 + 1
+    ϕ_raw = ϕ_raw_slab[:, :, zc]
+    ϕ_sm  = ϕ_sm_slab[:, :, zc]
+
+    H, W = size(ϕ_raw)
+    xs = (1:H) .* dx; ys = (1:W) .* dy
+
+    # zoom window (shared by both panels so raw vs smoothed are directly comparable):
+    # centre on `inset_center`, else the rightmost point of the raw contour.
+    Xr, Yr = compute_zero_contour_xy_coords(ϕ_raw_slab, zc, 1)
+    Xrµ = Xr .* dx; Yrµ = Yr .* dy
+    cxz, cyz = inset_center === nothing ? (let j = argmax(Xrµ); (Xrµ[j], Yrµ[j]) end) :
+                                          (Float64(inset_center[1]), Float64(inset_center[2]))
+    half = inset_size_um / 2
+    xlo, xhi, ylo, yhi = cxz - half, cxz + half, cyz - half, cyz + half
+    zoomclr = :dodgerblue
+
+    # window indices for the zoom-panel local colour range
+    ixlo, ixhi = clamp(round(Int, xlo / dx), 1, H), clamp(round(Int, xhi / dx), 1, H)
+    iylo, iyhi = clamp(round(Int, ylo / dy), 1, W), clamp(round(Int, yhi / dy), 1, W)
+
+    # LaTeX labels (shared)
+    xlab    = L"x\ [\mathrm{µm}]"
+    ylab    = L"y\ [\mathrm{µm}]"
+    zoomlab = L"%$(Int(round(inset_size_um)))\,\mathrm{µm\ zoom}"
+
+    cr = extrema(vcat(vec(ϕ_raw), vec(ϕ_sm)))     # shared colour scale → one meaningful colorbar
+    fig = Figure(size = (1250, 1230))
+    #Label(fig[0, :], L"t = %$(round(t; sigdigits=3)),\quad z = %$(z_layer)";
+          #fontsize = 32, font = :bold)
+    hm = nothing
+    # rows: raw (top), smoothed (bottom).  cols: full contour (left), zoom (right).
+    for (row, (ϕ, full, lab)) in enumerate(((ϕ_raw_slab, ϕ_raw, L"\text{raw }\phi"),
+                                            (ϕ_sm_slab,  ϕ_sm,  L"\text{smoothed }\phi\ (\sigma = %$(σ_μm))")))
+        X, Y = compute_zero_contour_xy_coords(ϕ, zc, 1)
+
+        # left: full contour (drop the x-label on the top row to avoid crowding the row below)
+        ax = Axis(fig[row, 1]; xlabel = row == 1 ? "" : xlab, ylabel = ylab,
+                  aspect = DataAspect(), title = lab)
+        hm = heatmap!(ax, xs, ys, full; colormap = :grays, colorrange = cr)
+        lines!(ax, X .* dx, Y .* dy; color = :red, linewidth = 2)
+        lines!(ax, [xlo, xhi, xhi, xlo, xlo], [ylo, ylo, yhi, yhi, ylo];   # mark zoom region
+               color = zoomclr, linewidth = 2)
+
+        # right: same contour zoomed to the window, with a local colour range so the
+        # (nearly flat) ϕ there isn't washed out.
+        cr_loc = extrema(@view full[ixlo:ixhi, iylo:iyhi])
+        axz = Axis(fig[row, 2]; xlabel = row == 1 ? "" : xlab, ylabel = ylab, aspect = DataAspect(),
+                   title = zoomlab, titlecolor = zoomclr, spinewidth = 2,
+                   leftspinecolor = zoomclr, rightspinecolor = zoomclr,
+                   topspinecolor = zoomclr, bottomspinecolor = zoomclr)
+        heatmap!(axz, xs, ys, full; colormap = :grays, colorrange = cr_loc)
+        lines!(axz, X .* dx, Y .* dy; color = :red, linewidth = 3)
+        limits!(axz, xlo, xhi, ylo, yhi)
+    end
+    Colorbar(fig[1:2, 3], hm; label = L"\phi\ [\mathrm{µm}]")     # far right, spanning both rows
+    # equal square panels (DataAspect axes otherwise auto-size their columns unequally)
+    colsize!(fig.layout, 1, Aspect(1, 1.0))
+    colsize!(fig.layout, 2, Aspect(1, 1.0))
     return fig
 end
 

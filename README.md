@@ -164,6 +164,21 @@ To analyse other samples, drop their `Processed_Images/` folder and
 `cells_<name>_.csv` under `DATA/<name>/` and pass them via `--datasets` (or edit
 the default `datasets` in the script).
 
+### Per-osteocyte contour diagnostics
+
+`Contour_Diagnostics.jl` is an interactive script for inspecting the curvature
+computation itself. Set `dataset` and `osteocyte_idx` at the top, then:
+
+```bash
+julia --project=. scripts/Osteon_Formation_Analysis/Contour_Diagnostics.jl
+```
+
+It produces (i) `plot_osteocyte_contour` — the 2-D contour a chosen osteocyte's
+curvature is measured on, with the osteocyte marked and a grey reference circle
+of the contour's mean curvature behind it; and (ii) `plot_smoothing_effect` —
+raw vs smoothed ϕ (grayscale heatmaps with red zero contours) showing how the
+Gaussian smoothing changes the contour.
+
 ## Tests
 
 The test suite (`test/`) verifies the main functions of `LevelSet.jl`,
