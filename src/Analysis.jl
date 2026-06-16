@@ -321,10 +321,12 @@ function ensure_ccw(X::AbstractVector, Y::AbstractVector)
 end
 
 """
-    compute_2D_curvature(x, y; k=3, eps=1e-10) -> Matrix{Float64}
+    compute_2D_curvature(x, y; k=3, arclen=nothing, k_min=3, eps=1e-10) -> Matrix{Float64}
 
 Signed curvature along a closed planar contour `(x, y)` by local parabola
-fitting.
+fitting. Returns one value per *unique* contour vertex (length `length(x)-1`,
+i.e. the closing repeated point dropped), **in the same order as the input** so a
+caller can read off the curvature at a given vertex by its own index.
 
 The contour is first reoriented counterclockwise (`ensure_ccw`). At each point
 a window of `±k` neighbours is taken, translated to the origin and rotated so
@@ -355,10 +357,22 @@ function compute_2D_curvature(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10)
     @assert length(x) == length(y) "x and y must have same length"
     N = length(x)-1
     @assert N ≥ 5 "Need at least 5 points"
-    # ensuring that the orientation from Marching Squares is anti clockwise
-    X,Y = ensure_ccw(x, y)
-    pop!(x); pop!(y)
 
+    # Work in the *input* point order so the returned curvature aligns index-for-index
+    # with the caller's contour (callers read off `κ[nearest contour point]`). Contour
+    # orientation only sets the SIGN convention (CCW ⇒ positive); curvature magnitude is
+    # order-independent and the signed value merely flips when the loop is reversed, so
+    # we apply orientation as a scalar `orient` instead of physically reversing the
+    # points (which would rotate/scramble the index mapping the caller depends on).
+    X = @view x[1:N]      # unique vertices (drop the repeated closing point)
+    Y = @view y[1:N]
+
+    A2 = 0.0              # 2× signed area (shoelace) → orientation of the loop
+    @inbounds for i in 1:N
+        j = i == N ? 1 : i + 1
+        A2 += X[i]*Y[j] - X[j]*Y[i]
+    end
+    orient = A2 ≥ 0 ? 1.0 : -1.0      # +1 if CCW, −1 if CW
 
     wrap(i) = mod1(i, N)
 
@@ -400,11 +414,11 @@ function compute_2D_curvature(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10)
     end
 
     half = arclen === nothing ? 0.0 : arclen / 2
-    curvature = zeros(length(x),1)
-    for ii in eachindex(x)
+    curvature = zeros(N,1)
+    for ii in 1:N
         # indices of the considered nodes on either side of point ii
         ii_considered = if arclen === nothing
-            vcat([wrap(ii - s) for s in k:-1:1], ii, [wrap(ii + s) for s in 1:k])
+            vcat([wrap(ii - q) for q in k:-1:1], ii, [wrap(ii + q) for q in 1:k])
         else
             window_by_arclen(ii, half)
         end
@@ -439,12 +453,12 @@ function compute_2D_curvature(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10)
         a,b,c = (A'*A)\(A'*y_array)
 
         num = 2*a
-        # since I center the points about a central point (0,0) then 2ax = 0 
+        # since I center the points about a central point (0,0) then 2ax = 0
         # + eps is to avoid division by 0
-        denom = ( 1 + b^2 )^(3/2) + eps 
+        denom = ( 1 + b^2 )^(3/2) + eps
 
-        # estimating curvature from parabola
-        curvature[ii] = num / denom
+        # estimating curvature from parabola; `orient` enforces the CCW sign convention
+        curvature[ii] = orient * num / denom
     end
     return curvature
 end

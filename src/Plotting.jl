@@ -37,6 +37,30 @@ export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices
        plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
        plot_osteocyte_contour, plot_smoothing_effect
 
+# ── LaTeX label helpers ───────────────────────────────────────────────────────
+# Every user-facing string — axis labels, titles, legend entries and tick labels —
+# is compiled as LaTeX (`L"..."`) for consistent typography across all figures.
+#
+# `_tex` wraps an arbitrary string (e.g. a dataset name) as upright LaTeX text.
+# MathTeXEngine renders an ASCII "-" (U+002D) as a minus sign even inside `\text{}`,
+# which would mangle hyphenated identifiers like "FM40-1-R1"; swapping each hyphen
+# for U+2010 (the typographic HYPHEN) makes them render correctly.
+_tex(s) = L"\text{%$(replace(string(s), '-' => '‐'))}"
+
+# Shared curvature axis label.
+_kappa_label(relative) = relative ? L"\kappa - \overline{\kappa}\ [\mathrm{µm}^{-1}]" :
+                                    L"\kappa\ \text{at osteocyte}\ [\mathrm{µm}^{-1}]"
+
+# Format numeric tick values as LaTeX (clean numbers: strip float noise and trailing
+# zeros; integers shown without a decimal point; negatives keep a real minus sign).
+function _fmt_num(v)
+    r = round(float(v); digits = 10)
+    isinteger(r) && return string(Int(r))
+    return rstrip(rstrip(string(r), '0'), '.')
+end
+_latex_ticks(values) = [L"%$(_fmt_num(v))" for v in values]
+const _LTICKS = (xtickformat = _latex_ticks, ytickformat = _latex_ticks)
+
 """
     plot_3d_contours!(ax, ϕ, Δz, tvals)
 
@@ -255,7 +279,7 @@ its formation time from `tvals`. Mutates `ax`.
 function plot_α_β!(ax, α, β, tvals)
     for jj in 1:2:size(α,1)
         scatter!(ax, rad2deg.(β), α[jj,:], markersize = 15)
-        lines!(ax, rad2deg.(β), α[jj,:], linewidth = 3, label = "T = $(tvals[jj])")
+        lines!(ax, rad2deg.(β), α[jj,:], linewidth = 3, label = L"T = %$(tvals[jj])")
     end
 end
 
@@ -298,17 +322,17 @@ function plot_osteocyte_distribution(t_form_all, κ_at_all, mean_κ_all, labels;
 
     yvals = relative ? [κ_at_all[i] .- mean_κ_all[i] for i in eachindex(κ_at_all)] :
                        [collect(κ_at_all[i])          for i in eachindex(κ_at_all)]
-    ylab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
-    title = relative ? "Osteocyte distribution: formation time vs curvature relative to the mean" :
-                       "Osteocyte distribution: formation time vs curvature (sign = convex/concave)"
+    ylab  = _kappa_label(relative)
+    title = relative ? L"\text{Osteocyte distribution: formation time vs curvature relative to the mean}" :
+                       L"\text{Osteocyte distribution: formation time vs curvature (sign = convex/concave)}"
 
     tpool = reduce(vcat, t_form_all)
     ypool = reduce(vcat, yvals)
 
     fig = Figure(size = (1000, 850))
-    ax  = Axis(fig[2, 1]; xlabel = "formation time  t", ylabel = ylab)
-    axt = Axis(fig[1, 1]; ylabel = "count")                  # top marginal — formation time
-    axk = Axis(fig[2, 2]; xlabel = "count")                  # right marginal — curvature
+    ax  = Axis(fig[2, 1]; _LTICKS..., xlabel = L"\text{formation time}\ t", ylabel = ylab)
+    axt = Axis(fig[1, 1]; _LTICKS..., ylabel = L"\text{count}")   # top marginal — formation time
+    axk = Axis(fig[2, 2]; _LTICKS..., xlabel = L"\text{count}")   # right marginal — curvature
     linkxaxes!(ax, axt)
     linkyaxes!(ax, axk)
     hidexdecorations!(axt; grid = false)
@@ -317,7 +341,7 @@ function plot_osteocyte_distribution(t_form_all, κ_at_all, mean_κ_all, labels;
     colsize!(fig.layout, 2, Relative(0.18))
 
     for i in eachindex(labels)
-        scatter!(ax, t_form_all[i], yvals[i]; markersize = markersize, label = string(labels[i]))
+        scatter!(ax, t_form_all[i], yvals[i]; markersize = markersize, label = _tex(labels[i]))
     end
     hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
 
@@ -379,15 +403,15 @@ preference. Backend-agnostic.
 function plot_formation_time_density(t_form_all, labels)
     cols = Makie.wong_colors()
     fig = Figure(size = (900, 550))
-    ax  = Axis(fig[1, 1]; xlabel = "formation time  t", ylabel = "density",
-               title = "Formation-time distribution (KDE)")
+    ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = L"\text{formation time}\ t", ylabel = L"\text{density}",
+               title = L"\text{Formation time distribution (KDE)}")
     for i in eachindex(labels)
         c = cols[mod1(i, length(cols))]
         density!(ax, t_form_all[i]; color = (c, 0.25), strokecolor = c, strokewidth = 2,
-                 label = string(labels[i]))
+                 label = _tex(labels[i]))
     end
     density!(ax, reduce(vcat, t_form_all); color = (:black, 0.0), strokecolor = :black,
-             strokewidth = 3, label = "all pooled")
+             strokewidth = 3, label = _tex("all pooled"))
     xlims!(ax, 0, 1)
     axislegend(ax; position = :rt, framevisible = false)
     return fig
@@ -413,18 +437,18 @@ function plot_curvature_density(κ_at_all, mean_κ_all, labels; relative::Bool =
     cols  = Makie.wong_colors()
     yvals = relative ? [κ_at_all[i] .- mean_κ_all[i] for i in eachindex(κ_at_all)] :
                        [collect(κ_at_all[i])          for i in eachindex(κ_at_all)]
-    xlab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
+    xlab  = _kappa_label(relative)
 
     fig = Figure(size = (900, 550))
-    ax  = Axis(fig[1, 1]; xlabel = xlab, ylabel = "density",
-               title = "Curvature distribution (KDE)")
+    ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = xlab, ylabel = L"\text{density}",
+               title = L"\text{Curvature distribution (KDE)}")
     for i in eachindex(labels)
         c = cols[mod1(i, length(cols))]
         density!(ax, yvals[i]; color = (c, 0.25), strokecolor = c, strokewidth = 2,
-                 label = string(labels[i]))
+                 label = _tex(labels[i]))
     end
     density!(ax, reduce(vcat, yvals); color = (:black, 0.0), strokecolor = :black,
-             strokewidth = 3, label = "all pooled")
+             strokewidth = 3, label = _tex("all pooled"))
     vlines!(ax, [0.0]; color = :gray, linestyle = :dash)   # 0 = mean (relative) or convex/concave boundary
     axislegend(ax; position = :rt, framevisible = false)
     return fig
@@ -442,14 +466,14 @@ reference. Backend-agnostic.
 function plot_curvature_by_time_bracket(t_form_all, κ_at_all, mean_κ_all; relative::Bool = true, nbrackets::Integer = 4)
     tpool = reduce(vcat, t_form_all)
     ypool = _pool_curvature(κ_at_all, mean_κ_all, relative)
-    ylab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
+    ylab  = _kappa_label(relative)
     edges = range(0, 1; length = nbrackets + 1)
     cat   = clamp.(floor.(Int, tpool .* nbrackets) .+ 1, 1, nbrackets)   # bracket index per osteocyte
-    ticks = ["[$(round(edges[b]; digits=2)), $(round(edges[b+1]; digits=2))]" for b in 1:nbrackets]
+    ticks = [L"[%$(round(edges[b]; digits=2)),\ %$(round(edges[b+1]; digits=2))]" for b in 1:nbrackets]
 
     fig = Figure(size = (950, 600))
-    ax  = Axis(fig[1, 1]; xlabel = "formation-time bracket", ylabel = ylab,
-               xticks = (1:nbrackets, ticks), title = "Curvature by formation-time bracket")
+    ax  = Axis(fig[1, 1]; ytickformat = _latex_ticks, xlabel = L"\text{formation time bracket}", ylabel = ylab,
+               xticks = (1:nbrackets, ticks), title = L"\text{Curvature by formation time bracket}")
     violin!(ax, cat, ypool; color = (:dodgerblue, 0.35), width = 0.85)
     boxplot!(ax, cat, ypool; width = 0.25, color = :dodgerblue, strokecolor = :black, markersize = 4)
     hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
@@ -466,13 +490,13 @@ clean way to judge a time preference. Backend-agnostic.
 """
 function plot_formation_time_ecdf(t_form_all, labels)
     fig = Figure(size = (800, 600))
-    ax  = Axis(fig[1, 1]; xlabel = "formation time  t", ylabel = "cumulative fraction",
-               title = "Formation-time ECDF")
-    lines!(ax, [0, 1], [0, 1]; color = :gray, linestyle = :dash, label = "uniform")
+    ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = L"\text{formation time}\ t", ylabel = L"\text{cumulative fraction}",
+               title = L"\text{Formation time ECDF}")
+    lines!(ax, [0, 1], [0, 1]; color = :gray, linestyle = :dash, label = _tex("uniform"))
     for i in eachindex(labels)
-        ecdfplot!(ax, t_form_all[i]; label = string(labels[i]))
+        ecdfplot!(ax, t_form_all[i]; label = _tex(labels[i]))
     end
-    ecdfplot!(ax, reduce(vcat, t_form_all); color = :black, linewidth = 3, label = "all datasets")
+    ecdfplot!(ax, reduce(vcat, t_form_all); color = :black, linewidth = 3, label = _tex("all datasets"))
     xlims!(ax, 0, 1); ylims!(ax, 0, 1)
     axislegend(ax; position = :lt, framevisible = false)
     return fig
@@ -495,18 +519,18 @@ function plot_curvature_by_scale(k_values, κ_at_per_k, mean_κ_per_k; relative:
     @assert length(k_values) == length(κ_at_per_k) == length(mean_κ_per_k)
     yvals = relative ? [κ_at_per_k[i] .- mean_κ_per_k[i] for i in eachindex(κ_at_per_k)] :
                        [collect(κ_at_per_k[i])           for i in eachindex(κ_at_per_k)]
-    ylab  = relative ? "κ − mean κ   [µm⁻¹]" : "κ at osteocyte   [µm⁻¹]"
+    ylab  = _kappa_label(relative)
 
     cat = Int[]; vals = Float64[]
     for i in eachindex(k_values)
         append!(cat,  fill(i, length(yvals[i])))
         append!(vals, yvals[i])
     end
-    ticks = [isinteger(k) ? string(Int(k)) : string(k) for k in k_values]
+    ticks = [isinteger(k) ? L"%$(Int(k))" : L"%$(k)" for k in k_values]
 
     fig = Figure(size = (950, 600))
-    ax  = Axis(fig[1, 1]; xlabel = "k_scale_um   [µm]", ylabel = ylab,
-               xticks = (1:length(k_values), ticks), title = "Curvature vs measurement scale")
+    ax  = Axis(fig[1, 1]; ytickformat = _latex_ticks, xlabel = L"k_{\text{scale}}\ [\mathrm{µm}]", ylabel = ylab,
+               xticks = (1:length(k_values), ticks), title = L"\text{Curvature vs measurement scale}")
     violin!(ax, cat, vals; color = (:dodgerblue, 0.35), width = 0.8)
     boxplot!(ax, cat, vals; width = 0.25, color = :dodgerblue, strokecolor = :black, markersize = 4)
     hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
@@ -559,17 +583,17 @@ function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
     cx, cy = sum(Xµ) / length(Xµ), sum(Yµ) / length(Yµ)   # contour centroid
 
     fig = Figure(size = (1150, 820))
-    ax  = Axis(fig[1, 1]; xlabel = "x [µm]", ylabel = "y [µm]", aspect = DataAspect(),
-               title = "Osteocyte $idx — mean κ = $(round(mean_κ; sigdigits=3)) µm⁻¹")
+    ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = L"x\ [\mathrm{µm}]", ylabel = L"y\ [\mathrm{µm}]", aspect = DataAspect(),
+               title = L"\text{Osteocyte } %$idx:\ \overline{\kappa} = %$(round(mean_κ; sigdigits=3))\ \mathrm{µm}^{-1}")
     if mean_κ != 0                                          # grey reference circle of the mean curvature
         R = 1 / abs(mean_κ)
         θ = range(0, 2π; length = 200)
         lines!(ax, cx .+ R .* cos.(θ), cy .+ R .* sin.(θ);
-               color = (:gray, 0.6), linewidth = 4, label = "circle of mean κ (R=$(round(R; sigdigits=3)) µm)")
+               color = (:gray, 0.6), linewidth = 4, label = L"\text{circle of mean }\kappa\ (R = %$(round(R; sigdigits=3))\ \mathrm{µm})")
     end
-    lines!(ax, Xµ, Yµ; color = :black, linewidth = 3, label = "contour")
+    lines!(ax, Xµ, Yµ; color = :black, linewidth = 3, label = L"\text{contour}")
     scatter!(ax, [ox], [oy]; color = :red, markersize = 18,
-             label = "osteocyte (κ=$(round(κ_at; sigdigits=3)))")
+             label = L"\text{osteocyte}\ (\kappa = %$(round(κ_at; sigdigits=3)))")
     Legend(fig[1, 2], ax; framevisible = false)   # legend in its own column → never over the contour
     return fig
 end
@@ -636,7 +660,7 @@ function plot_smoothing_effect(t, outer_dt_S, inner_dt_S, z_layer, dx, dy, dz, �
         X, Y = compute_zero_contour_xy_coords(ϕ, zc, 1)
 
         # left: full contour (drop the x-label on the top row to avoid crowding the row below)
-        ax = Axis(fig[row, 1]; xlabel = row == 1 ? "" : xlab, ylabel = ylab,
+        ax = Axis(fig[row, 1]; _LTICKS..., xlabel = row == 1 ? "" : xlab, ylabel = ylab,
                   aspect = DataAspect(), title = lab)
         hm = heatmap!(ax, xs, ys, full; colormap = :grays, colorrange = cr)
         lines!(ax, X .* dx, Y .* dy; color = :red, linewidth = 2)
@@ -646,7 +670,7 @@ function plot_smoothing_effect(t, outer_dt_S, inner_dt_S, z_layer, dx, dy, dz, �
         # right: same contour zoomed to the window, with a local colour range so the
         # (nearly flat) ϕ there isn't washed out.
         cr_loc = extrema(@view full[ixlo:ixhi, iylo:iyhi])
-        axz = Axis(fig[row, 2]; xlabel = row == 1 ? "" : xlab, ylabel = ylab, aspect = DataAspect(),
+        axz = Axis(fig[row, 2]; _LTICKS..., xlabel = row == 1 ? "" : xlab, ylabel = ylab, aspect = DataAspect(),
                    title = zoomlab, titlecolor = zoomclr, spinewidth = 2,
                    leftspinecolor = zoomclr, rightspinecolor = zoomclr,
                    topspinecolor = zoomclr, bottomspinecolor = zoomclr)
@@ -654,7 +678,7 @@ function plot_smoothing_effect(t, outer_dt_S, inner_dt_S, z_layer, dx, dy, dz, �
         lines!(axz, X .* dx, Y .* dy; color = :red, linewidth = 3)
         limits!(axz, xlo, xhi, ylo, yhi)
     end
-    Colorbar(fig[1:2, 3], hm; label = L"\phi\ [\mathrm{µm}]")     # far right, spanning both rows
+    Colorbar(fig[1:2, 3], hm; label = L"\phi\ [\mathrm{µm}]", tickformat = _latex_ticks)   # far right, spanning both rows
     # equal square panels (DataAspect axes otherwise auto-size their columns unequally)
     colsize!(fig.layout, 1, Aspect(1, 1.0))
     colsize!(fig.layout, 2, Aspect(1, 1.0))

@@ -13,7 +13,7 @@
 # Figures are saved to ./figures/ and (under GLMakie) shown interactively.
 
 # ── Configuration ────────────────────────────────────────────────────────────
-dataset       = "FM40-1-R1"
+dataset       = "FM40-4-R2"
 osteocyte_idx = 10            # which osteocyte to inspect (1 = earliest-forming; see note below)
 dx = 0.379; dy = 0.379; dz = 0.358    # voxel spacings [µm]
 σ_smooth      = 2.0          # Gaussian σ [µm] applied to ϕ before curvature
@@ -78,8 +78,8 @@ f1 = plot_osteocyte_contour(osteocyte_idx, t_sorted, outer_dt_S, inner_dt_S,
 saveshow("osteocyte_$(osteocyte_idx)_contour.png", f1)
 
 # ── Figure 2: smoothing effect on the contour (same osteocyte's t and slice) ─
-t_inspect = t_sorted[20]
-z_inspect = pos_sorted[20][3]
+t_inspect = t_sorted[osteocyte_idx]
+z_inspect = pos_sorted[osteocyte_idx][3]
 f2 = plot_smoothing_effect(t_inspect, outer_dt_S, inner_dt_S, z_inspect, dx, dy, dz, σ_smooth)
 saveshow("smoothing_effect_t$(round(t_inspect; sigdigits=2)).png", f2)
 

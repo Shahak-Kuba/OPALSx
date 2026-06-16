@@ -6,7 +6,7 @@ include("../../src/Analysis.jl")
 using .Imaging, .LevelSet, .Geometry, .Analysis
 
 # choose which dataset to process 
-dataset = "FM40-2-S2"
+dataset = "FM40-4-R2"
 
 base_dir = joinpath("DATA", dataset)
 paths_HCa = readdir(joinpath(base_dir, "HCa"); join=true)

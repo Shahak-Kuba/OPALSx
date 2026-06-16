@@ -14,8 +14,8 @@
 # CLI-driven). For headless/HPC batch runs use that one instead.
 
 # ── Configuration ────────────────────────────────────────────────────────────
-dataset          = "FM40-2-S2"
-k_scale_um_array = [20.0, 60.0, 100.0]    # curvature scales to compare [µm]
+dataset          = "FM40-4-R2"
+k_scale_um_array = [20.0, 100.0]    # curvature scales to compare [µm]
 dx = 0.379; dy = 0.379; dz = 0.358        # voxel spacings [µm]
 σ_smooth = 2.0                            # Gaussian σ [µm] applied to ϕ before curvature
 
