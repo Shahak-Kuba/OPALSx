@@ -18,9 +18,11 @@
 #
 # The datasets, curvature scale and run-folder name can be set from the terminal
 # (no file edits):
-#   julia .../Multi_Osteon_Analysis_HPC.jl --datasets=FM40-1-R1,FM40-2-R2 --k_scale_um=30 --run=FM40_k30
+#   julia .../Multi_Osteon_Analysis_HPC.jl --datasets=FM40-1-R1,FM40-2-R2 --k_scale_um=30 --mean_method=CCF --run=FM40_k30
 #   julia --project=hpc .../Multi_Osteon_Analysis_HPC.jl --k_scale_um 30
-# `--datasets` is a comma-separated list (no spaces). Omitted flags use defaults.
+# `--datasets` is a comma-separated list (no spaces). `--mean_method` is one of
+# CCF (circle fit, default), CTF (turning fit) or ALF (average of local fits).
+# Omitted flags use defaults.
 #
 # ── Outputs ──────────────────────────────────────────────────────────────────
 # All outputs (figures, curvature_results.csv, run_info.txt) are written to ONE
@@ -94,6 +96,16 @@ function cli_strings(flag::AbstractString, default::Vector{String})
     return String.(items)
 end
 
+"""Read the `--mean_method` flag (CCF/CTF/ALF, case-insensitive, optional `:`); else `default`."""
+function cli_mean_method(default::Symbol = :CCF)
+    valstr = cli_value("--mean_method")
+    valstr === nothing && return default
+    s = uppercase(strip(valstr)); startswith(s, ":") && (s = s[2:end])
+    m = Symbol(s)
+    m in (:ALF, :CCF, :CTF) || error("--mean_method must be one of ALF, CCF, CTF (got '$valstr').")
+    return m
+end
+
 # ── Configuration ────────────────────────────────────────────────────────────
 # Datasets to process. Override from the terminal (comma-separated, no spaces),
 # e.g.:  julia --project=hpc <script> --datasets=FM40-1-R1,FM40-2-R2
@@ -106,6 +118,12 @@ dx = 0.379; dy = 0.379; dz = 0.358        # voxel spacings [µm]
 # Override from the terminal, e.g.:  julia --project=hpc <script> --k_scale_um=30
 k_scale_um = cli_float("--k_scale_um", 15.0)
 println("Using k_scale_um = $k_scale_um µm")
+
+# How the contour MEAN curvature (mean_available_κ) is computed: :CCF (circle
+# fit, default), :CTF (turning fit) or :ALF (average of local fits — the only one
+# that uses k_scale_um). Override with --mean_method=CTF etc.
+mean_method = cli_mean_method()
+println("Using mean_method = :$mean_method")
 
 SAVE_SURFACE_3D    = true                  # also save the 3-D formation-front figure
 SURFACE_DATASET    = datasets[1]           # which dataset to render in 3-D
@@ -130,6 +148,7 @@ open(joinpath(OUT_DIR, "run_info.txt"), "w") do io
     println(io, "timestamp        : ", now())
     println(io, "datasets         : ", join(datasets, ", "))
     println(io, "k_scale_um  [µm] : ", k_scale_um)
+    println(io, "mean_method      : ", mean_method)
     println(io, "σ_smooth    [µm] : ", σ_smooth)
     println(io, "dx, dy, dz  [µm] : ", (dx, dy, dz))
     println(io, "surface 3-D      : ", SAVE_SURFACE_3D, "  (dataset=", SURFACE_DATASET,
@@ -233,7 +252,7 @@ for (di, name) in enumerate(datasets)
 
     κ_at_osteocyte, mean_available_κ = compute_curvature_near_osteocyte(
         t_form[idx_sort], outer_dt_S, inner_dt_S, Ocy_pos_voxel[idx_sort],
-        dx, dy, dz, σ_smooth; k_scale_um=k_scale_um)
+        dx, dy, dz, σ_smooth; k_scale_um=k_scale_um, mean_method=mean_method)
 
     push!(dataset_labels,       name)
     push!(t_form_all,           t_form[idx_sort])

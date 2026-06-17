@@ -15,9 +15,10 @@
 # (activates the hpc/ environment itself, so --project is optional). Options:
 #   --dataset=FM40-1-R1        single dataset to analyse
 #   --k=20,60,100              comma-separated curvature scales [µm] (no spaces)
+#   --mean_method=CCF          contour-mean method: CCF (default), CTF or ALF
 #   --run=NAME                 output-folder name (default: a timestamp)
 # e.g.:
-#   julia .../kScale_Sweep_HPC.jl --dataset=FM40-1-R1 --k=20,60,100 --run=FM40-1-R1_ksweep
+#   julia .../kScale_Sweep_HPC.jl --dataset=FM40-1-R1 --k=20,60,100 --mean_method=CCF --run=FM40-1-R1_ksweep
 #
 # ── Outputs (in output/<run>/, also bundled as output/<run>.zip) ─────────────
 #   curvature_results.csv          long format: k_scale_um, t_form, kappa_at, mean_kappa
@@ -66,14 +67,26 @@ function cli_floats(flag::AbstractString, default::Vector{Float64})
     return [(v = tryparse(Float64, s); v === nothing ? error("Bad number '$s' in $flag.") : v) for s in items]
 end
 
+"""Read the `--mean_method` flag (CCF/CTF/ALF, case-insensitive, optional `:`); else `default`."""
+function cli_mean_method(default::Symbol = :CCF)
+    valstr = cli_value("--mean_method")
+    valstr === nothing && return default
+    s = uppercase(strip(valstr)); startswith(s, ":") && (s = s[2:end])
+    m = Symbol(s)
+    m in (:ALF, :CCF, :CTF) || error("--mean_method must be one of ALF, CCF, CTF (got '$valstr').")
+    return m
+end
+
 # ── Configuration ────────────────────────────────────────────────────────────
 dataset          = something(cli_value("--dataset"), "FM40-1-R1")
 k_scale_um_array = cli_floats("--k", [20.0, 60.0, 100.0])    # curvature scales [µm]
+mean_method      = cli_mean_method()                          # :CCF (default), :CTF or :ALF
 dx = 0.379; dy = 0.379; dz = 0.358                            # voxel spacings [µm]
 σ_smooth = 2.0                                                # Gaussian σ [µm] before curvature
 MAKE_ZIP = true
 println("Dataset      : $dataset")
 println("k_scale_um's : ", join(k_scale_um_array, ", "), " µm")
+println("mean_method  : :$mean_method")
 
 const DATA_DIR = joinpath(PROJECT_ROOT, "DATA")
 
@@ -87,6 +100,7 @@ open(joinpath(OUT_DIR, "run_info.txt"), "w") do io
     println(io, "timestamp        : ", now())
     println(io, "dataset          : ", dataset)
     println(io, "k_scale_um  [µm] : ", join(k_scale_um_array, ", "))
+    println(io, "mean_method      : ", mean_method)
     println(io, "σ_smooth    [µm] : ", σ_smooth)
     println(io, "dx, dy, dz  [µm] : ", (dx, dy, dz))
     println(io, "julia version    : ", VERSION)
@@ -135,7 +149,8 @@ mean_κ_all = Vector{Vector{Float64}}()
 for (ki, k) in enumerate(k_scale_um_array)
     println("\n  k_scale_um = $k µm   ($ki/$(length(k_scale_um_array)))")
     κ_at, mean_κ = compute_curvature_near_osteocyte(
-        t_sorted, outer_dt_S, inner_dt_S, pos_sorted, dx, dy, dz, σ_smooth; k_scale_um=k)
+        t_sorted, outer_dt_S, inner_dt_S, pos_sorted, dx, dy, dz, σ_smooth;
+        k_scale_um=k, mean_method=mean_method)
     push!(k_labels,   "k=$(isinteger(k) ? Int(k) : k) µm")
     push!(κ_at_all,   κ_at)
     push!(mean_κ_all, mean_κ)

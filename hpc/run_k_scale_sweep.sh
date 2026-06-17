@@ -11,8 +11,11 @@
 #   ./run_k_scale_sweep.sh                                  # use the settings below
 #   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2              # override datasets (1st arg)
 #   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 FM40_        # + run-folder prefix (2nd arg)
+#   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 FM40_ CTF    # + contour-mean method (3rd arg)
 # To set a prefix while keeping the default datasets, pass them explicitly:
 #   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 myprefix_
+# mean_method is one of CCF (circle fit, default), CTF (turning fit) or ALF
+# (average of local fits).
 #
 # Each value k gets:
 #   • its own screen session  opalsx_k<k>
@@ -25,6 +28,7 @@ set -euo pipefail
 k_scale_um_array=(20 60 100)                   # scales to sweep [µm]
 datasets="${1:-FM40-1-R1,FM40-2-R2}"           # comma-separated, NO spaces (1st CLI arg overrides)
 run_prefix="${2:-}"                             # output folder name = ${run_prefix}k<value> (2nd CLI arg overrides)
+mean_method="${3:-CCF}"                         # contour-mean method: CCF (default), CTF or ALF (3rd CLI arg)
 JULIA="julia"                                    # julia command (or full path to the binary)
 PRECOMPILE=true                                  # precompile the env once before launching the screens
 
@@ -52,6 +56,7 @@ echo "Project : $PROJECT_ROOT"
 echo "Env     : $HPC_DIR"
 echo "Datasets: $datasets"
 echo "Scales  : ${k_scale_um_array[*]}"
+echo "Mean    : $mean_method"
 echo
 
 # ── Precompile once so the parallel screens don't all precompile at the same
@@ -72,9 +77,9 @@ for k in "${k_scale_um_array[@]}"; do
     # Drop any stale session of the same name so re-runs start clean.
     screen -S "$session" -X quit >/dev/null 2>&1 || true
 
-    cmd="${setup_cmds:+$setup_cmds; }cd '$PROJECT_ROOT' && '$JULIA' --project='$HPC_DIR' '$JL_SCRIPT' --datasets='$datasets' --k_scale_um=$k --run='$run' 2>&1 | tee '$log'"
+    cmd="${setup_cmds:+$setup_cmds; }cd '$PROJECT_ROOT' && '$JULIA' --project='$HPC_DIR' '$JL_SCRIPT' --datasets='$datasets' --k_scale_um=$k --mean_method='$mean_method' --run='$run' 2>&1 | tee '$log'"
     screen -dmS "$session" bash -lc "$cmd"
-    echo "▶ launched screen '$session'  (k_scale_um=$k)  → log: $log"
+    echo "▶ launched screen '$session'  (k_scale_um=$k, mean_method=$mean_method)  → log: $log"
 done
 
 echo
