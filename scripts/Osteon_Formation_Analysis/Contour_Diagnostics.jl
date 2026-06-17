@@ -1,23 +1,27 @@
 # Per-osteocyte contour diagnostics (local / interactive).
 #
-# Two diagnostic figures for a single dataset:
+# Three diagnostic figures for a single dataset:
 #   1. plot_osteocyte_contour   — the 2-D contour a chosen osteocyte's curvature is
 #      measured on, with the osteocyte marked and a grey reference circle of the
 #      contour's mean curvature behind it (title = mean available curvature).
 #   2. plot_smoothing_effect    — raw vs Gaussian-smoothed level-set field ϕ at a
 #      formation time / slice, each as a grayscale heatmap with the zero contour
 #      in red, to inspect how smoothing changes the contour.
+#   3. plot_curvature_vs_kscale — the contour-mean curvature (and the curvature at
+#      the osteocyte) measured on that contour as a function of the measurement
+#      scale k_scale_um, swept over a range, to help choose a scale.
 #
 # Run from the project root:
 #   julia --project=. scripts/Osteon_Formation_Analysis/Contour_Diagnostics.jl
 # Figures are saved to ./figures/ and (under GLMakie) shown interactively.
 
 # ── Configuration ────────────────────────────────────────────────────────────
-dataset       = "FM40-4-R2"
-osteocyte_idx = 10            # which osteocyte to inspect (1 = earliest-forming; see note below)
+dataset       = "FM40-2-S2"
+osteocyte_idx = 2            # which osteocyte to inspect (1 = earliest-forming; see note below)
 dx = 0.379; dy = 0.379; dz = 0.358    # voxel spacings [µm]
 σ_smooth      = 2.0          # Gaussian σ [µm] applied to ϕ before curvature
 k_scale_um    = 60.0         # arc length [µm] over which curvature is measured
+k_sweep       = 1:5:201     # arc-length scales [µm] swept for the curvature-vs-scale figure
 
 # ── Source modules ─────────────────────────────────────────────────────────────
 include("../../src/Imaging.jl")
@@ -82,5 +86,10 @@ t_inspect = t_sorted[osteocyte_idx]
 z_inspect = pos_sorted[osteocyte_idx][3]
 f2 = plot_smoothing_effect(t_inspect, outer_dt_S, inner_dt_S, z_inspect, dx, dy, dz, σ_smooth)
 saveshow("smoothing_effect_t$(round(t_inspect; sigdigits=2)).png", f2)
+
+# ── Figure 3: mean curvature vs measurement scale (k_scale_um sweep) ──────────
+f3 = plot_curvature_vs_kscale(osteocyte_idx, t_sorted, outer_dt_S, inner_dt_S,
+                              pos_sorted, dx, dy, dz, σ_smooth; k_values = k_sweep)
+saveshow("osteocyte_$(osteocyte_idx)_curvature_vs_kscale.png", f3)
 
 println("\nFinished. Figures saved to $FIGDIR")

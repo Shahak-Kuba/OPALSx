@@ -31,7 +31,8 @@ using ..LevelSet: smooth_ϕ
 using ..Geometry: compute_zero_contour_xy_coords
 
 export analysis_Tdelay_pairs, compute_curvature, compute_curvature_4th, compute_2D_curvature,
-       curvature_at_point, estimate_osteocyte_curvature_3D, compute_curvature_near_osteocyte
+       contour_mean_curvature, circle_fit_curvature, turning_fit_curvature, curvature_at_point,
+       estimate_osteocyte_curvature_3D, compute_curvature_near_osteocyte
 
 """
     generate_Tdelay_pairs(proj_points) -> Vector
@@ -463,6 +464,120 @@ function compute_2D_curvature(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10)
     return curvature
 end
 
+"""
+    turning_fit_curvature(x, y) -> Float64
+
+Scale-independent mean curvature of a closed planar contour `(x, y)` — the
+**contour turning fit** (`:CTF`) — computed from the **total turning** of the
+polygon rather than by averaging local estimates:
+
+    κ̄ = (∑ turning angles) / perimeter = 2π·(turning number) / L .
+
+For a simple closed contour the turning angles sum to ±2π (Gauss / Hopf
+*Umlaufsatz*), so this is exactly `2π / L = 1 / R_eff` with effective radius
+`R_eff = L / 2π`. It is signed with the same convention as
+[`compute_2D_curvature`](@ref) (counterclockwise / convex ⇒ positive).
+
+Why prefer this for the contour **mean**? Averaging the per-vertex parabola
+estimates from `compute_2D_curvature` gives a value that drifts with the
+measurement scale `k_scale_um` — for small (late-forming) contours a fixed
+physical window becomes a large fraction of the perimeter and the local fit
+over-estimates curvature. The turning-based mean uses no fitting window, so it is
+constant across scales and matches the small-`k` limit of the averaged estimate.
+
+Note this captures the *average* curvature (a size / 1-over-radius measure); it
+does not distinguish locally convex vs concave regions — for that, use the
+per-vertex `compute_2D_curvature` (e.g. the value at the osteocyte).
+
+`x`, `y` are the closed contour (first point repeated), in physical units (e.g.
+`X .* dx`); the result is in those units⁻¹ (µm⁻¹).
+"""
+function turning_fit_curvature(x, y)
+    @assert length(x) == length(y) "x and y must have same length"
+    N = length(x) - 1
+    @assert N ≥ 3 "Need at least 3 points"
+    X = @view x[1:N]; Y = @view y[1:N]
+    wrap(i) = mod1(i, N)
+
+    A2 = 0.0; turning = 0.0; L = 0.0    # 2× signed area, total turning, perimeter
+    @inbounds for i in 1:N
+        ip = wrap(i + 1); im = wrap(i - 1)
+        A2 += X[i] * Y[ip] - X[ip] * Y[i]
+        e1x = X[i]  - X[im]; e1y = Y[i]  - Y[im]    # incoming edge
+        e2x = X[ip] - X[i];  e2y = Y[ip] - Y[i]     # outgoing edge
+        turning += atan(e1x * e2y - e1y * e2x, e1x * e2x + e1y * e2y)
+        L += hypot(e2x, e2y)
+    end
+    orient = A2 ≥ 0 ? 1.0 : -1.0       # CCW ⇒ +1, so convex ⇒ positive κ̄
+    return orient * turning / L
+end
+
+"""
+    circle_fit_curvature(x, y) -> Float64
+
+Mean curvature of a closed contour `(x, y)` — the **contour circle fit** (`:CCF`)
+— from a circle fitted to **all** of its points, with the circle **centred on the
+contour centroid** `P̄ = (1/N)∑ Pᵢ`.
+
+With the centre fixed at the centroid, the least-squares circle radius (the `R`
+minimising `∑(‖Pᵢ−P̄‖ − R)²`) is simply the mean centroid distance,
+
+    R = (1/N) ∑ ‖Pᵢ − P̄‖,     κ = 1 / R .
+
+Like [`turning_fit_curvature`](@ref) this uses **no measurement window**, so it
+is independent of `k_scale_um`; for a perfect circle both give `1/R` exactly. It
+differs from the turning-based `2π/L = 1/R_eff` for non-circular contours: this
+uses the centroid-distance radius, whereas `2π/L` uses the perimeter radius
+`L/2π`. The result is positive (a fitted circle is convex).
+
+`x`, `y` are the closed contour (first point repeated), in physical units; the
+result is in those units⁻¹ (µm⁻¹).
+"""
+function circle_fit_curvature(x, y)
+    @assert length(x) == length(y) "x and y must have same length"
+    N = length(x) - 1
+    @assert N ≥ 3 "Need at least 3 points"
+    X = @view x[1:N]; Y = @view y[1:N]
+    cx = sum(X) / N; cy = sum(Y) / N           # contour centroid
+    R = 0.0
+    @inbounds for i in 1:N
+        R += hypot(X[i] - cx, Y[i] - cy)       # distance from centroid
+    end
+    R /= N
+    return 1 / R
+end
+
+"""
+    contour_mean_curvature(x, y; method=:CCF, arclen=nothing, k=3, k_min=3, eps=1e-10) -> Float64
+
+Mean curvature of a closed contour `(x, y)`, dispatched on `method`:
+
+- `:CCF` — **contour circle fit** (default): `1/R` with `R` the mean distance from
+  the contour centroid ([`circle_fit_curvature`](@ref)). Scale-free.
+- `:CTF` — **contour turning fit**: `2π/L` from the total turning
+  ([`turning_fit_curvature`](@ref)). Scale-free.
+- `:ALF` — **average of local fits**: the mean of the per-vertex parabola
+  curvatures ([`compute_2D_curvature`](@ref)) over the contour. This is
+  *scale-dependent* — it uses the fitting window `arclen` (the `k_scale_um` arc
+  length) or, if `arclen===nothing`, the point half-width `k`.
+
+`:CCF` and `:CTF` ignore `arclen`/`k`/`k_min`/`eps`. The default `:CCF` is
+recommended for the contour mean because, unlike `:ALF`, it does not drift with
+the measurement scale (a fixed physical window becomes a large fraction of a small
+late-forming contour's perimeter and inflates the local fits). Use the per-vertex
+[`compute_2D_curvature`](@ref) for *local* curvature (e.g. at the osteocyte).
+"""
+function contour_mean_curvature(x, y; method::Symbol = :CCF, arclen = nothing,
+                                k::Integer = 3, k_min::Integer = 3, eps = 1e-10)
+    method === :CCF && return circle_fit_curvature(x, y)
+    method === :CTF && return turning_fit_curvature(x, y)
+    if method === :ALF
+        κ = compute_2D_curvature(x, y; k = k, arclen = arclen, k_min = k_min, eps = eps)
+        return sum(κ) / length(κ)
+    end
+    throw(ArgumentError("unknown mean-curvature method :$method (use :ALF, :CCF, or :CTF)"))
+end
+
 
 
 # =============================================================================
@@ -668,7 +783,8 @@ reaches at most `kz_half` slices, the smoothed value at the centre slice is
 time. Two values are recorded per osteocyte:
 
 - `κ_at_osteocyte`   : curvature at the contour point nearest the osteocyte
-- `mean_available_κ` : mean curvature over the whole contour at that time
+- `mean_available_κ` : mean curvature over the whole contour at that time,
+                       computed by `mean_method` (see below)
 
 Both are returned as vectors in the input order, in units of µm⁻¹.
 
@@ -687,8 +803,16 @@ Arguments
 
 Keyword arguments
 - `k_scale_um`            : arc length (µm) of the curvature-fitting window — the
-                            physical scale at which curvature is measured
-                            (default `15.0`, ≈ one osteocyte).
+                            physical scale at which the **local** curvature
+                            (`κ_at_osteocyte`) is measured (default `15.0`, ≈ one
+                            osteocyte). Also used for `mean_available_κ` only when
+                            `mean_method = :ALF`.
+- `mean_method`           : how `mean_available_κ` is computed — `:CCF` (contour
+                            circle fit, **default**), `:CTF` (contour turning fit)
+                            or `:ALF` (average of local fits). The default `:CCF`
+                            is scale-free; `:ALF` reuses the `k_scale_um` window
+                            and drifts with scale (see
+                            [`contour_mean_curvature`](@ref)).
 - `show_progress`         : display a per-osteocyte progress bar (default `true`).
                             ProgressMeter throttles its own redraws (~10 Hz), so
                             the overhead is negligible next to the per-osteocyte
@@ -696,7 +820,8 @@ Keyword arguments
 """
 function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S,
                                           Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
-                                          k_scale_um::Real=15.0, show_progress::Bool=true)
+                                          k_scale_um::Real=15.0, mean_method::Symbol=:CCF,
+                                          show_progress::Bool=true)
     κ_at_osteocyte   = Float64[]
     mean_available_κ = Float64[]
 
@@ -724,10 +849,16 @@ function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S
 
         # Contour the osteocyte's slice (its local index within the slab).
         X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, idx)
-        κ    = compute_2D_curvature(X .* dx, Y .* dy; arclen=k_scale_um)
+        Xµ, Yµ = X .* dx, Y .* dy
 
-        push!(mean_available_κ, mean(κ))
-        push!(κ_at_osteocyte,   κ[nearest_index(X .* dx, Y .* dy, osteocyte_x, osteocyte_y)])
+        # Local curvature at the osteocyte (always the per-vertex parabola fit).
+        κ = compute_2D_curvature(Xµ, Yµ; arclen=k_scale_um)
+        push!(κ_at_osteocyte, κ[nearest_index(Xµ, Yµ, osteocyte_x, osteocyte_y)])
+
+        # Contour mean by the chosen method (reuse κ for :ALF; :CCF/:CTF are window-free).
+        mκ = mean_method === :ALF ? sum(κ) / length(κ) :
+                                    contour_mean_curvature(Xµ, Yµ; method=mean_method)
+        push!(mean_available_κ, mκ)
 
         next!(prog)
     end

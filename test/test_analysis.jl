@@ -23,6 +23,20 @@
         @test std(κ) < 0.1 * abs(sum(κ) / length(κ))       # ~constant around the circle
     end
 
+    @testset "contour_mean_curvature — methods agree on a circle (κ = 1/R)" begin
+        R = 30.0; M = 240
+        θ = collect(range(0, 2π; length = M + 1))
+        x = R .* cos.(θ); y = R .* sin.(θ)
+        @test isapprox(circle_fit_curvature(copy(x), copy(y)),  1 / R; rtol = 1e-3)  # :CCF
+        @test isapprox(turning_fit_curvature(copy(x), copy(y)), 1 / R; rtol = 1e-3)  # :CTF
+        for m in (:CCF, :CTF, :ALF)
+            @test isapprox(contour_mean_curvature(copy(x), copy(y); method = m, arclen = 20.0),
+                           1 / R; rtol = 0.05)
+        end
+        @test contour_mean_curvature(copy(x), copy(y)) == circle_fit_curvature(copy(x), copy(y))  # default :CCF
+        @test_throws ArgumentError contour_mean_curvature(copy(x), copy(y); method = :nope)
+    end
+
     @testset "curvature_at_point — cylinder surface has κ ≈ 1/r" begin
         ϕ = Float32.(cyl_sdf(20.0))
         for rpx in (35.0, 50.0)

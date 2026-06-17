@@ -61,13 +61,13 @@ export
     compute_planes_and_intersections, proj_3D_onto_XZ,
     # Analysis — curvature and osteocyte analysis
     analysis_Tdelay_pairs, compute_curvature, compute_curvature_4th,
-    compute_2D_curvature, curvature_at_point, estimate_osteocyte_curvature_3D,
-    compute_curvature_near_osteocyte,
+    compute_2D_curvature, contour_mean_curvature, circle_fit_curvature, turning_fit_curvature,
+    curvature_at_point, estimate_osteocyte_curvature_3D, compute_curvature_near_osteocyte,
     # Plotting — Makie entry points (GLMakie or CairoMakie backend)
     plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!,
     plot_α_β!, plot_3d_surfaces!, plot_osteocyte_distribution,
     plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
     plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
-    plot_osteocyte_contour, plot_smoothing_effect
+    plot_osteocyte_contour, plot_curvature_vs_kscale, plot_smoothing_effect
 
 end # module OPALSx

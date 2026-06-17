@@ -29,13 +29,13 @@ import Contour as CTR
 # sources) — Plotting is always loaded after LevelSet/Geometry/Analysis.
 using ..LevelSet:  smooth_ϕ
 using ..Geometry:  compute_zero_contour_xy_coords
-using ..Analysis:  compute_2D_curvature
+using ..Analysis:  compute_2D_curvature, contour_mean_curvature, circle_fit_curvature, turning_fit_curvature
 
 export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!, plot_α_β!,
        plot_3d_surfaces!, plot_osteocyte_distribution,
        plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
        plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
-       plot_osteocyte_contour, plot_smoothing_effect
+       plot_osteocyte_contour, plot_curvature_vs_kscale, plot_smoothing_effect
 
 # ── LaTeX label helpers ───────────────────────────────────────────────────────
 # Every user-facing string — axis labels, titles, legend entries and tick labels —
@@ -542,7 +542,8 @@ _kz_half(σ_μm, dx, dy, dz) = (length(KernelFactors.gaussian((σ_μm/dx, σ_μm
 
 """
     plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
-                           Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; k_scale_um=15.0) -> Figure
+                           Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                           k_scale_um=15.0, mean_method=:CCF) -> Figure
 
 Visualise the exact 2-D contour on which osteocyte `idx`'s curvature is measured.
 `idx` indexes the **formation-time-ordered** vectors (same order as
@@ -555,10 +556,15 @@ The figure (in physical µm, equal aspect) shows:
 - a light-grey reference circle of the **same curvature as the contour mean**
   (radius = 1/|mean κ|), centred on the contour centroid, drawn behind.
 
-The title reports the mean available curvature for that contour.
+The contour mean shown in the title (and used for the reference circle) is
+computed by `mean_method` — `:CCF` (circle fit, **default**), `:CTF` (turning
+fit) or `:ALF` (average of local fits over the `k_scale_um` window); see
+[`Analysis.contour_mean_curvature`](@ref). With `:CCF` the grey reference circle
+is exactly the fitted circle.
 """
 function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
-                                Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; k_scale_um = 15.0)
+                                Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                                k_scale_um = 15.0, mean_method::Symbol = :CCF)
     t       = t_form_ordered[idx]
     z_layer = Ocy_pos_voxel_ordered[idx][3]
     ox      = Ocy_pos_voxel_ordered[idx][1] * dx
@@ -575,10 +581,12 @@ function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
     X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, 1)
     Xµ, Yµ = X .* dx, Y .* dy
     κ = compute_2D_curvature(copy(Xµ), copy(Yµ); arclen = k_scale_um)
-    mean_κ = sum(κ) / length(κ)
     n = length(κ)
     j = argmin(@. (Xµ[1:n] - ox)^2 + (Yµ[1:n] - oy)^2)   # nearest contour point to the osteocyte
     κ_at = κ[j]
+    # contour mean by the chosen method (reuse κ for :ALF; :CCF/:CTF are window-free)
+    mean_κ = mean_method === :ALF ? sum(κ) / length(κ) :
+                                    contour_mean_curvature(Xµ, Yµ; method = mean_method)
 
     cx, cy = sum(Xµ) / length(Xµ), sum(Yµ) / length(Yµ)   # contour centroid
 
@@ -595,6 +603,87 @@ function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
     scatter!(ax, [ox], [oy]; color = :red, markersize = 18,
              label = L"\text{osteocyte}\ (\kappa = %$(round(κ_at; sigdigits=3)))")
     Legend(fig[1, 2], ax; framevisible = false)   # legend in its own column → never over the contour
+    return fig
+end
+
+"""
+    plot_curvature_vs_kscale(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                             Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                             k_values=10:5:150) -> Figure
+
+Show how the curvature measured on osteocyte `idx`'s 2-D formation-front contour
+depends on the **measurement scale** `k_scale_um`. `idx` indexes the
+formation-time-ordered vectors (same order as
+[`Analysis.compute_curvature_near_osteocyte`](@ref)).
+
+The contour is built **once** (the smoothed z-slab, exactly as
+[`plot_osteocyte_contour`](@ref) / `compute_curvature_near_osteocyte`), then the
+curvature step is repeated for every arc length in `k_values` (µm). Two curves are
+drawn against `k_scale_um`:
+
+- `⟨κ⟩`, the **average of the per-vertex local fits** (the old contour mean) — this
+  drifts with scale, inflating once the window is a large fraction of a small
+  contour's perimeter;
+- the curvature **at the osteocyte** (nearest contour vertex), for context; and
+- two constant **scale-free references**: `κ̄ = 2π/L` from
+  [`Analysis.turning_fit_curvature`](@ref) (total turning / perimeter) and
+  `1/R` from [`Analysis.circle_fit_curvature`](@ref) (circle fitted about the
+  centroid) — both are the value `⟨κ⟩` converges to at small `k`.
+
+Use it to pick a sensible `k_scale_um` (keep the window a small fraction of the
+contour) and to read off the consistent contour-mean curvature `2π/L`.
+"""
+function plot_curvature_vs_kscale(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                                  Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                                  k_values = 10:5:150)
+    t       = t_form_ordered[idx]
+    z_layer = Ocy_pos_voxel_ordered[idx][3]
+    ox      = Ocy_pos_voxel_ordered[idx][1] * dx
+    oy      = Ocy_pos_voxel_ordered[idx][2] * dy
+
+    # Rebuild the smoothed z-slab and extract the contour once (see plot_osteocyte_contour).
+    kz = _kz_half(σ_μm, dx, dy, dz)
+    Z  = size(outer_dt_S, 3)
+    z0 = max(1, z_layer - kz); z1 = min(Z, z_layer + kz)
+    oa = @view outer_dt_S[:, :, z0:z1]
+    ia = @view inner_dt_S[:, :, z0:z1]
+    ϕ_smooth = smooth_ϕ((@. Float32((1 - t) * oa - t * ia)); dx, dy, dz, σ_μm)
+
+    X, Y   = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, 1)
+    Xµ, Yµ = X .* dx, Y .* dy
+    n0     = length(Xµ) - 1
+    j      = argmin(@. (Xµ[1:n0] - ox)^2 + (Yµ[1:n0] - oy)^2)   # nearest contour vertex
+
+    # Scale-free contour means: total turning (2π/L) and centroid circle fit (1/R).
+    κ̄_turn   = turning_fit_curvature(copy(Xµ), copy(Yµ))
+    κ̄_circle = circle_fit_curvature(copy(Xµ), copy(Yµ))
+
+    # Repeat only the (cheap) curvature step for each measurement scale.
+    ks     = collect(float.(k_values))
+    mean_κ = similar(ks)
+    κ_at   = similar(ks)
+    for (i, k) in enumerate(ks)
+        κ         = compute_2D_curvature(copy(Xµ), copy(Yµ); arclen = k)
+        mean_κ[i] = sum(κ) / length(κ)
+        κ_at[i]   = κ[j]
+    end
+
+    fig = Figure(size = (900, 600))
+    ax  = Axis(fig[1, 1]; _LTICKS...,
+               xlabel = L"k_{\text{scale}}\ [\mathrm{µm}]",
+               ylabel = L"\kappa\ [\mathrm{µm}^{-1}]",
+               title  = L"\text{Curvature vs measurement scale — osteocyte } %$idx")
+    hlines!(ax, [0.0]; color = :gray, linestyle = :dot)
+    # scale-free references (constant in k)
+    hlines!(ax, [κ̄_turn]; color = :dodgerblue, linewidth = 3, linestyle = :dashdot,
+            label = L"\overline{\kappa} = 2\pi/L\ \text{(turning)}")
+    hlines!(ax, [κ̄_circle]; color = :seagreen, linewidth = 3, linestyle = :dot,
+            label = L"\kappa = 1/R\ \text{(circle fit)}")
+    lines!(ax,   ks, mean_κ; color = :black, linewidth = 3, label = L"\langle\kappa\rangle\ \text{(avg of local fits)}")
+    scatter!(ax, ks, mean_κ; color = :black, markersize = 10)
+    lines!(ax,   ks, κ_at; color = :red, linewidth = 3, linestyle = :dash, label = L"\kappa\ \text{at osteocyte}")
+    scatter!(ax, ks, κ_at; color = :red, markersize = 10)
+    axislegend(ax; position = :rt, framevisible = false)
     return fig
 end
 
