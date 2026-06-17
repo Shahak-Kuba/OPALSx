@@ -17,10 +17,10 @@
 # mean_method is one of CCF (circle fit, default), CTF (turning fit) or ALF
 # (average of local fits).
 #
-# Each value k gets:
-#   • its own screen session  opalsx_k<k>
-#   • its own output folder    output/k<k>/  (+ output/k<k>.zip)
-#   • a log file               output/logs/k<k>.log
+# Each value k gets (with <m> = the mean_method):
+#   • its own screen session  opalsx_k<k>_<m>
+#   • its own output folder    output/k<k>_<m>/  (+ output/k<k>_<m>.zip)
+#   • a log file               output/logs/k<k>_<m>.log
 
 set -euo pipefail
 
@@ -29,6 +29,7 @@ k_scale_um_array=(20 60 100)                   # scales to sweep [µm]
 datasets="${1:-FM40-1-R1,FM40-2-R2}"           # comma-separated, NO spaces (1st CLI arg overrides)
 run_prefix="${2:-}"                             # output folder name = ${run_prefix}k<value> (2nd CLI arg overrides)
 mean_method="${3:-CCF}"                         # contour-mean method: CCF (default), CTF or ALF (3rd CLI arg)
+mean_method="${mean_method#:}"; mean_method="$(printf '%s' "$mean_method" | tr '[:lower:]' '[:upper:]')"   # normalise (drop ':', upper-case) so it's consistent in run names
 JULIA="julia"                                    # julia command (or full path to the binary)
 PRECOMPILE=true                                  # precompile the env once before launching the screens
 
@@ -70,7 +71,7 @@ fi
 
 # ── Launch one detached screen per scale ─────────────────────────────────────
 for k in "${k_scale_um_array[@]}"; do
-    run="${run_prefix}k${k}"
+    run="${run_prefix}k${k}_${mean_method}"      # include method so runs don't overwrite
     session="opalsx_${run}"
     log="$LOG_DIR/${run}.log"
 
@@ -85,7 +86,7 @@ done
 echo
 echo "Launched ${#k_scale_um_array[@]} run(s). Monitor with:"
 echo "  screen -ls                       # list running sessions"
-echo "  screen -r opalsx_k<value>        # attach to one (detach again: Ctrl-a then d)"
-echo "  tail -f $LOG_DIR/k<value>.log    # follow a run's output"
+echo "  screen -r opalsx_${run_prefix}k<value>_${mean_method}   # attach to one (detach again: Ctrl-a then d)"
+echo "  tail -f $LOG_DIR/${run_prefix}k<value>_${mean_method}.log   # follow a run's output"
 echo
 echo "Outputs will be in: $PROJECT_ROOT/output/<run>/  (and <run>.zip)"

@@ -23,6 +23,7 @@ set -euo pipefail
 datasets="${1:-FM40-1-R1}"           # comma-separated list, NO spaces — one screen per dataset (1st CLI arg)
 k_values="${2:-20,60,100}"           # comma-separated scales [µm], NO spaces (2nd CLI arg overrides)
 mean_method="${3:-CCF}"              # contour-mean method: CCF (default), CTF or ALF (3rd CLI arg)
+mean_method="${mean_method#:}"; mean_method="$(printf '%s' "$mean_method" | tr '[:lower:]' '[:upper:]')"   # normalise (drop ':', upper-case) so it's consistent in run names
 JULIA="julia"                         # julia command (or full path)
 PRECOMPILE=true                       # precompile the env once before launching
 
@@ -64,7 +65,7 @@ fi
 for ds in "${dataset_list[@]}"; do
     ds="${ds// /}"                       # strip any stray spaces
     [ -z "$ds" ] && continue
-    run_name="ksweep_${ds}"
+    run_name="ksweep_${ds}_${mean_method}"          # include method so runs don't overwrite
     session="opalsx_${run_name}"
     log="$LOG_DIR/${run_name}.log"
     screen -S "$session" -X quit >/dev/null 2>&1 || true   # drop any stale session
@@ -77,7 +78,7 @@ done
 echo
 echo "Launched ${#dataset_list[@]} run(s). Monitor with:"
 echo "  screen -ls                              # list running sessions"
-echo "  screen -r opalsx_ksweep_<dataset>       # attach (detach again: Ctrl-a then d)"
-echo "  tail -f $LOG_DIR/ksweep_<dataset>.log"
+echo "  screen -r opalsx_ksweep_<dataset>_${mean_method}    # attach (detach again: Ctrl-a then d)"
+echo "  tail -f $LOG_DIR/ksweep_<dataset>_${mean_method}.log"
 echo
-echo "Outputs will be in: $PROJECT_ROOT/output/ksweep_<dataset>/  (and .zip)"
+echo "Outputs will be in: $PROJECT_ROOT/output/ksweep_<dataset>_${mean_method}/  (and .zip)"

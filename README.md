@@ -122,16 +122,20 @@ run's name instead of `FM40_k30`).
 
 `hpc/run_k_scale_sweep.sh` launches one detached `screen` session per
 `k_scale_um` value, each running the HPC script with that scale into its own
-`output/k<value>/` folder and log. Edit `k_scale_um_array` (and `datasets`) at
-the top of the script, then:
+`output/k<value>_<mean_method>/` folder and log. Edit `k_scale_um_array` (and
+`datasets`) at the top of the script, then:
 
 ```bash
-./hpc/run_k_scale_sweep.sh                      # uses the settings in the file
-./hpc/run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2  # override datasets (1st arg)
+./hpc/run_k_scale_sweep.sh                          # uses the settings in the file
+./hpc/run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2      # override datasets (1st arg)
+./hpc/run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 "" CTF  # + contour-mean method (3rd arg)
 ```
 
-Monitor with `screen -ls`, attach with `screen -r opalsx_k<value>` (detach again
-with `Ctrl-a` then `d`), or follow a log with `tail -f output/logs/k<value>.log`.
+The contour-mean method (3rd arg: `CCF` default, `CTF`, or `ALF`) is appended to
+each run name, so sweeping the same scales with different methods does not
+overwrite. Monitor with `screen -ls`, attach with
+`screen -r opalsx_k<value>_<mean_method>` (detach again with `Ctrl-a` then `d`),
+or follow a log with `tail -f output/logs/k<value>_<mean_method>.log`.
 
 ### Comparing curvature scales on one dataset
 
@@ -142,10 +146,14 @@ curvature step per scale):
 
 ```bash
 julia --project=hpc scripts/Osteon_Formation_Analysis/kScale_Sweep_HPC.jl \
-      --dataset=FM40-1-R1 --k=20,60,100 --run=FM40-1-R1_ksweep
-# or launch it in a detached screen:
-./hpc/run_kscale_single_dataset.sh FM40-1-R1 20,60,100
+      --dataset=FM40-1-R1 --k=20,60,100 --mean_method=CCF --run=FM40-1-R1_ksweep
+# or launch it in a detached screen (3rd arg = contour-mean method: CCF/CTF/ALF):
+./hpc/run_kscale_single_dataset.sh FM40-1-R1 20,60,100        # default CCF
+./hpc/run_kscale_single_dataset.sh FM40-1-R1 20,60,100 CTF    # → output/ksweep_FM40-1-R1_CTF/
 ```
+
+The launcher appends the method to the run name (`ksweep_<dataset>_<mean_method>/`),
+so running different methods does not overwrite earlier outputs.
 
 For interactive/local use there's `kScale_Sweep.jl` (GLMakie by default; edit
 `dataset` and `k_scale_um_array` at the top):
