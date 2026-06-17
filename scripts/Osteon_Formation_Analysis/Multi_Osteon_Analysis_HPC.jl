@@ -27,10 +27,10 @@
 # ── Outputs ──────────────────────────────────────────────────────────────────
 # All outputs (figures, curvature_results.csv, run_info.txt) are written to ONE
 # self-contained folder: output/<run>/  (a timestamp unless you pass --run=NAME),
-# and that folder is also bundled into a single file output/<run>.zip.
-# Pull it onto your laptop in one go (run this FROM your laptop):
+# which is then bundled into output/<run>.zip. With MAKE_ZIP=true (the default)
+# the run folder is DELETED after zipping, so only output/<run>.zip remains.
+# Pull it onto your laptop (run this FROM your laptop):
 #   scp user@hpc.address:/path/to/OPALSx/output/<run>.zip ~/Downloads/   # the .zip
-#   scp -r user@hpc.address:/path/to/OPALSx/output/<run> ~/Downloads/    # or the folder
 #
 # This uses the OPALSx/hpc/ environment, which is the main project MINUS GLMakie.
 # That way a headless compute node never installs or precompiles GLMakie (it needs
@@ -378,7 +378,14 @@ if MAKE_ZIP
     zippath = OUT_DIR * ".zip"                       # output/<run>.zip (sits next to the folder)
     zip_folder(OUT_DIR, zippath)
     println("Bundled outputs → $zippath")
+    # Keep only the .zip: delete the run folder once the bundle is safely written.
+    if isfile(zippath) && filesize(zippath) > 0
+        rm(OUT_DIR; recursive = true)
+        println("Removed folder $OUT_DIR (kept $zippath)")
+    else
+        @warn "Zip $zippath is missing or empty — keeping folder $OUT_DIR"
+    end
 end
 
-println("\nFinished. Outputs in $OUT_DIR")
-MAKE_ZIP && println("Single-file bundle: $(OUT_DIR).zip")
+println("\nFinished.")
+println(MAKE_ZIP ? "Single-file bundle: $(OUT_DIR).zip" : "Outputs in $OUT_DIR")

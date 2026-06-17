@@ -20,7 +20,8 @@
 # e.g.:
 #   julia .../kScale_Sweep_HPC.jl --dataset=FM40-1-R1 --k=20,60,100 --mean_method=CCF --run=FM40-1-R1_ksweep
 #
-# ── Outputs (in output/<run>/, also bundled as output/<run>.zip) ─────────────
+# ── Outputs (bundled into output/<run>.zip; the run folder is deleted after
+#    zipping with MAKE_ZIP=true, so only the .zip remains) ──────────────────────
 #   curvature_results.csv          long format: k_scale_um, t_form, kappa_at, mean_kappa
 #   kde_curves.csv                 per-scale KDE curves (kappa and kappa-mean)
 #   curvature_vs_tform_by_scale.png
@@ -234,8 +235,17 @@ function zip_folder(folder::AbstractString, zippath::AbstractString)
     return zippath
 end
 if MAKE_ZIP
-    zip_folder(OUT_DIR, OUT_DIR * ".zip")
-    println("Bundled outputs → $(OUT_DIR).zip")
+    zippath = OUT_DIR * ".zip"
+    zip_folder(OUT_DIR, zippath)
+    println("Bundled outputs → $zippath")
+    # Keep only the .zip: delete the run folder once the bundle is safely written.
+    if isfile(zippath) && filesize(zippath) > 0
+        rm(OUT_DIR; recursive = true)
+        println("Removed folder $OUT_DIR (kept $zippath)")
+    else
+        @warn "Zip $zippath is missing or empty — keeping folder $OUT_DIR"
+    end
 end
 
-println("\nFinished. Outputs in $OUT_DIR")
+println("\nFinished.")
+println(MAKE_ZIP ? "Single-file bundle: $(OUT_DIR).zip" : "Outputs in $OUT_DIR")
