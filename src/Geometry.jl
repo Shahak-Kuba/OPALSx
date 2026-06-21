@@ -18,7 +18,7 @@ using LinearAlgebra
 using Statistics
 import Contour as CTR
 
-export compute_zero_contour_xy_coords, Ω, compute_xy_center,
+export compute_zero_contour_xy_coords, resample_closed_contour, Ω, compute_xy_center,
 Plane, compute_planes_and_intersections, proj_3D_onto_XZ
 # --------------------------- finding the 2D 0 level contour at z_layer ------------------------------
 """
@@ -59,6 +59,39 @@ function compute_zero_contour_xy_coords(ϕ,z_layer,tval_idx)
     else
         return X,Y
     end
+end
+
+"""
+    resample_closed_contour(x, y; spacing) -> (X, Y)
+
+Resample the closed contour `(x, y)` (first point repeated) to points **equally
+spaced in arc length**, ~`spacing` apart, by linear interpolation along the
+polyline. Returns a closed contour (first point repeated) with `M = round(L /
+spacing)` unique points, where `L` is the perimeter.
+
+Marching-squares contours have very uneven spacing (vertices clip grid corners),
+which biases an equal-weight parabola fit toward densely-sampled stretches.
+Resampling to uniform spacing is an alternative to the arc-length weighting in
+[`Analysis.compute_2D_curvature`](@ref): after resampling, an equal-weight fit is
+already (approximately) arc-length weighted.
+"""
+function resample_closed_contour(x, y; spacing::Real)
+    @assert length(x) == length(y) "x and y must have same length"
+    N = length(x) - 1                                   # unique vertices (drop repeat)
+    @assert N ≥ 3 "Need at least 3 points"
+    seg = Float64[hypot(x[i+1]-x[i], y[i+1]-y[i]) for i in 1:N]
+    cum = vcat(0.0, cumsum(seg))                        # cum[i] = arc length up to vertex i; cum[N+1] = L
+    L   = cum[end]
+    M   = max(8, round(Int, L / spacing))               # number of uniform samples
+    Xn  = Vector{Float64}(undef, M); Yn = Vector{Float64}(undef, M)
+    for k in 1:M
+        s = (k - 1) * L / M                             # uniform arc-length position
+        i = clamp(searchsortedlast(cum, s), 1, N)       # segment [i, i+1] containing s
+        f = seg[i] > 0 ? (s - cum[i]) / seg[i] : 0.0
+        Xn[k] = x[i] + f * (x[i+1] - x[i])
+        Yn[k] = y[i] + f * (y[i+1] - y[i])
+    end
+    return vcat(Xn, Xn[1]), vcat(Yn, Yn[1])             # closed (first point repeated)
 end
 
 """

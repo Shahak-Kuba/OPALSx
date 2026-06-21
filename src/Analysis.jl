@@ -28,7 +28,7 @@ using ProgressMeter
 # files are `include`d directly by a script), so this works in both cases —
 # provided LevelSet and Geometry are loaded first (they are, by include order).
 using ..LevelSet: smooth_ϕ
-using ..Geometry: compute_zero_contour_xy_coords
+using ..Geometry: compute_zero_contour_xy_coords, resample_closed_contour
 
 export analysis_Tdelay_pairs, compute_curvature, compute_curvature_4th, compute_2D_curvature,
        contour_mean_curvature, circle_fit_curvature, turning_fit_curvature, curvature_at_point,
@@ -322,7 +322,8 @@ function ensure_ccw(X::AbstractVector, Y::AbstractVector)
 end
 
 """
-    compute_2D_curvature(x, y; k=3, arclen=nothing, k_min=3, eps=1e-10) -> Matrix{Float64}
+    compute_2D_curvature(x, y; k=3, arclen=nothing, k_min=3, eps=1e-10,
+                         anchor=true, sampling=:resample, resample_spacing=nothing) -> Matrix{Float64}
 
 Signed curvature along a closed planar contour `(x, y)` by local parabola
 fitting. Returns one value per *unique* contour vertex (length `length(x)-1`,
@@ -331,11 +332,14 @@ caller can read off the curvature at a given vertex by its own index.
 
 The contour is first reoriented counterclockwise (`ensure_ccw`). At each point
 a window of `±k` neighbours is taken, translated to the origin and rotated so
-the local tangent aligns with the x-axis; a least-squares parabola `y = a x² +
-b x + c` is fitted to the window and the curvature read off as `κ = 2a / (1 +
-b²)^{3/2}`. `eps` guards the denominator. Returns one curvature value per
-contour point (in the units of `x`, `y`); pass physical coordinates (e.g.
-`X .* dx`) to obtain curvature in µm⁻¹.
+the local tangent aligns with the x-axis; a least-squares parabola is fitted to
+the window and the curvature read off as `κ = 2a / (1 + b²)^{3/2}`. Both forms
+pass through the central point; by default (`anchor=true`) the parabola is
+`y = a x²`, with its **turning point (vertex) fixed at the central point**, while
+`anchor=false` gives `y = a x² + b x` (through the point but with a free vertex).
+`eps` guards the denominator. Returns one curvature value per contour point (in
+the units of `x`, `y`); pass physical coordinates (e.g. `X .* dx`) to obtain
+curvature in µm⁻¹.
 
 The fitting window can be chosen in two ways:
 - a fixed **point count** `±k` (the default), or
@@ -353,8 +357,61 @@ Keyword arguments
              overrides `k`
 - `k_min`  : minimum points per side in arc-length mode (parabola-fit stability)
 - `eps`    : small value added to the denominator for numerical stability
+- `anchor` : both forms pass through the central point (`c = 0`). If `true`
+             (**default**), also fix the parabola's turning point (vertex) there —
+             fit `y = a x²` (force `b = 0`) — so the vertex sits exactly at the
+             point the curvature is evaluated at (κ = 2a). Set `false` for
+             `y = a x² + b x` (through the point, with a free vertex).
+- `sampling`: how the uneven marching-squares spacing (vertices cluster where the
+             contour clips grid corners, which biases an equal-weight fit toward
+             densely-sampled stretches) is handled —
+             * `:resample` (**default**): resample the contour to uniform arc-length
+               spacing (`resample_spacing`, default = the median original segment),
+               fit there, then map each result back to the nearest input vertex;
+             * `:weighted`: keep the original points but weight each by its local
+               arc-length element `ds = ½(seg₋ + seg₊)`;
+             * `:none`: the plain equal-weight fit on the original points.
+- `resample_spacing` : uniform spacing (units of `x`,`y`) used when
+             `sampling=:resample`; `nothing` ⇒ the median original segment length.
 """
-function compute_2D_curvature(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10)
+function compute_2D_curvature(x, y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10,
+                              anchor::Bool=true, sampling::Symbol=:resample,
+                              resample_spacing=nothing)
+    if sampling === :weighted
+        return _curvature_core(x, y; k, arclen, k_min, eps, anchor, weighted=true)
+    elseif sampling === :none
+        return _curvature_core(x, y; k, arclen, k_min, eps, anchor, weighted=false)
+    elseif sampling === :resample
+        # Resample to uniform arc-length spacing (removes the marching-squares
+        # sampling bias), fit there, then map results back to the input vertices so
+        # the returned array still aligns index-for-index with the caller's contour.
+        N0  = length(x) - 1
+        sp  = resample_spacing === nothing ?
+              median(Float64[hypot(x[i+1]-x[i], y[i+1]-y[i]) for i in 1:N0]) :
+              float(resample_spacing)
+        xr, yr = resample_closed_contour(x, y; spacing = sp)
+        κr  = _curvature_core(xr, yr; k, arclen, k_min, eps, anchor, weighted=false)
+        Nr  = length(xr) - 1
+        κ   = zeros(N0, 1)
+        @inbounds for i in 1:N0
+            xi = x[i]; yi = y[i]; best = Inf; bj = 1
+            for j in 1:Nr
+                d = (xr[j] - xi)^2 + (yr[j] - yi)^2
+                d < best && (best = d; bj = j)
+            end
+            κ[i] = κr[bj]
+        end
+        return κ
+    else
+        throw(ArgumentError("unknown sampling :$sampling (use :resample, :weighted, or :none)"))
+    end
+end
+
+# Core local-parabola curvature estimator (one value per unique input vertex).
+# `weighted` toggles arc-length weighting; resampling is handled by the public
+# `compute_2D_curvature` wrapper above.
+function _curvature_core(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10,
+                         anchor::Bool=true, weighted::Bool=false)
     @assert length(x) == length(y) "x and y must have same length"
     N = length(x)-1
     @assert N ≥ 5 "Need at least 5 points"
@@ -443,15 +500,30 @@ function compute_2D_curvature(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10)
             push!(rotated_points,rotate(point, -rotation_θ))
         end
 
-        # calculating LS fit parabola: x = (A'A)¹A'b
-        A = zeros(length(points), 3)
-        for jj in eachindex(rotated_points)
-            A[jj, :] .= [rotated_points[jj][1]^2, rotated_points[jj][1], 1]
+        # Per-point weights. Marching-squares vertices are NOT evenly spaced (they
+        # cluster where the contour clips grid corners), so an equal-weight fit is
+        # biased toward densely-sampled stretches. Weighting each point by its local
+        # arc-length element ds = ½(seg₋ + seg₊) makes the fit approximate the
+        # continuous (arc-length) least squares and removes that sampling bias.
+        w = weighted ? Float64[(seglen(c) + seglen(wrap(c - 1))) / 2 for c in ii_considered] :
+                       ones(length(ii_considered))
+
+        # LS parabola fit. Both forms pass through the central point (c ≡ 0). With
+        # `anchor` also fix the turning point (vertex) there — fit y = a x² (b ≡ 0),
+        # vertex at (0,0); otherwise fit y = a x² + b x (through (0,0), vertex free).
+        y_array = [p[2] for p in rotated_points]
+        if anchor
+            xsq = [p[1]^2 for p in rotated_points]
+            a = sum(w .* xsq .* y_array) / (sum(w .* xsq .^ 2) + eps)   # weighted 1-param LS
+            b = 0.0
+        else
+            A = zeros(length(points), 2)
+            for jj in eachindex(rotated_points)
+                A[jj, 1] = rotated_points[jj][1]^2
+                A[jj, 2] = rotated_points[jj][1]
+            end
+            a, b = (A' * (w .* A)) \ (A' * (w .* y_array))   # weighted LS normal equations
         end
-
-        y_array = [y for (x,y) in rotated_points]
-
-        a,b,c = (A'*A)\(A'*y_array)
 
         num = 2*a
         # since I center the points about a central point (0,0) then 2ax = 0

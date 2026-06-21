@@ -13,7 +13,7 @@
 #   ./run_kscale_single_dataset.sh FM40-1-R1                            # one dataset
 #   ./run_kscale_single_dataset.sh FM40-1-R1,FM40-1-R2,FM40-2-R2        # 3 datasets → 3 screens
 #   ./run_kscale_single_dataset.sh FM40-1-R1,FM40-1-R2 20,60,100        # datasets + scales (2nd arg)
-#   ./run_kscale_single_dataset.sh FM40-1-R1 20,60,100 CTF             # + contour-mean method (3rd arg)
+#   ./run_kscale_single_dataset.sh FM40-4-R2,FM40-4-E2,FM40-2-S2 20,60,100 CTF             # + contour-mean method (3rd arg)
 # (datasets and scales are comma-separated lists with NO spaces.)
 # mean_method is one of CCF (circle fit, default), CTF (turning fit) or ALF.
 

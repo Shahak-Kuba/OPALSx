@@ -10,18 +10,23 @@
 #   3. plot_curvature_vs_kscale — the contour-mean curvature (and the curvature at
 #      the osteocyte) measured on that contour as a function of the measurement
 #      scale k_scale_um, swept over a range, to help choose a scale.
+#   4. plot_parabola_fits       — in the local fitting frame (osteocyte at the
+#      origin), the contour points within a window and the least-squares parabola
+#      fitted at each of several k_scale_um values, labelled by curvature.
 #
 # Run from the project root:
 #   julia --project=. scripts/Osteon_Formation_Analysis/Contour_Diagnostics.jl
 # Figures are saved to ./figures/ and (under GLMakie) shown interactively.
 
 # ── Configuration ────────────────────────────────────────────────────────────
-dataset       = "FM40-2-S2"
-osteocyte_idx = 2            # which osteocyte to inspect (1 = earliest-forming; see note below)
+dataset       = "FM40-4-R2"
+osteocyte_idx = 1            # which osteocyte to inspect (1 = earliest-forming; see note below)
 dx = 0.379; dy = 0.379; dz = 0.358    # voxel spacings [µm]
 σ_smooth      = 2.0          # Gaussian σ [µm] applied to ϕ before curvature
 k_scale_um    = 60.0         # arc length [µm] over which curvature is measured
 k_sweep       = 1:5:201     # arc-length scales [µm] swept for the curvature-vs-scale figure
+parab_window_um = 200.0              # arc-length window [µm] of contour shown in the parabola-fit figure
+k_parab         = [20.0, 50.0, 100.0, 150.0]  # k_scale_um values whose fitted parabolas are overlaid
 
 # ── Source modules ─────────────────────────────────────────────────────────────
 include("../../src/Imaging.jl")
@@ -91,5 +96,11 @@ saveshow("smoothing_effect_t$(round(t_inspect; sigdigits=2)).png", f2)
 f3 = plot_curvature_vs_kscale(osteocyte_idx, t_sorted, outer_dt_S, inner_dt_S,
                               pos_sorted, dx, dy, dz, σ_smooth; k_values = k_sweep)
 saveshow("osteocyte_$(osteocyte_idx)_curvature_vs_kscale.png", f3)
+
+# ── Figure 4: local parabola fits at several k_scale_um (osteocyte at origin) ─
+f4 = plot_parabola_fits(osteocyte_idx, t_sorted, outer_dt_S, inner_dt_S,
+                        pos_sorted, dx, dy, dz, σ_smooth;
+                        window_um = parab_window_um, k_values = k_parab, anchor = true)
+saveshow("osteocyte_$(osteocyte_idx)_parabola_fits.png", f4)
 
 println("\nFinished. Figures saved to $FIGDIR")

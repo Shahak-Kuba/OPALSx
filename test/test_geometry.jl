@@ -15,6 +15,17 @@
         end
     end
 
+    @testset "resample_closed_contour — uniform spacing, shape preserved" begin
+        θ = collect(range(0, 2π; length = 137)); x = 40 .* cos.(θ); y = 40 .* sin.(θ)  # closed circle
+        Xr, Yr = resample_closed_contour(x, y; spacing = 1.0)
+        @test Xr[1] == Xr[end] && Yr[1] == Yr[end]                 # returned closed
+        N = length(Xr) - 1
+        seg = [hypot(Xr[i+1]-Xr[i], Yr[i+1]-Yr[i]) for i in 1:N]
+        @test std(seg) / mean(seg) < 0.01                          # uniform spacing (tiny corner effect)
+        @test sum(seg) ≈ 2π * 40 rtol = 0.01                       # perimeter preserved
+        @test all(@. isapprox(sqrt(Xr[1:N]^2 + Yr[1:N]^2), 40; atol = 0.05))  # still on the circle
+    end
+
     @testset "Ω — polygon area" begin
         @test Ω([0.0, 1, 1, 0], [0.0, 0, 1, 1]) ≈ 1.0       # unit square
         @test Ω([0.0, 2, 2, 0], [0.0, 0, 3, 3]) ≈ 6.0       # 2×3 rectangle

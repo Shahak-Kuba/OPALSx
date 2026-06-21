@@ -27,15 +27,16 @@ import Contour as CTR
 # Cross-module helpers for the per-osteocyte diagnostics below. `..` resolves to
 # the enclosing module (OPALSx as a package, or Main when scripts `include` the
 # sources) — Plotting is always loaded after LevelSet/Geometry/Analysis.
+using Statistics: median
 using ..LevelSet:  smooth_ϕ
-using ..Geometry:  compute_zero_contour_xy_coords
+using ..Geometry:  compute_zero_contour_xy_coords, resample_closed_contour
 using ..Analysis:  compute_2D_curvature, contour_mean_curvature, circle_fit_curvature, turning_fit_curvature
 
 export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices!, plot_α_β!,
        plot_3d_surfaces!, plot_osteocyte_distribution,
        plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
        plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
-       plot_osteocyte_contour, plot_curvature_vs_kscale, plot_smoothing_effect
+       plot_osteocyte_contour, plot_curvature_vs_kscale, plot_parabola_fits, plot_smoothing_effect
 
 # ── LaTeX label helpers ───────────────────────────────────────────────────────
 # Every user-facing string — axis labels, titles, legend entries and tick labels —
@@ -552,15 +553,17 @@ function's outputs.
 
 The figure (in physical µm, equal aspect) shows:
 - the zero-level contour the curvature is computed along (black),
-- a marker at the osteocyte's position (red),
-- a light-grey reference circle of the **same curvature as the contour mean**
-  (radius = 1/|mean κ|), centred on the contour centroid, drawn behind.
+- a marker at the osteocyte's position (red), labelled with the local curvature
+  there (the per-vertex fit at scale `k_scale_um`),
+- **one reference circle per mean-curvature method** — `:CCF` (circle fit),
+  `:CTF` (turning fit) and `:ALF` (average of local fits over `k_scale_um`) —
+  each of radius `1/|κ̄|` centred on the contour centroid, so the three contour
+  means can be compared directly (see [`Analysis.contour_mean_curvature`](@ref)).
+  For `:CCF` the circle is exactly the fitted circle.
 
-The contour mean shown in the title (and used for the reference circle) is
-computed by `mean_method` — `:CCF` (circle fit, **default**), `:CTF` (turning
-fit) or `:ALF` (average of local fits over the `k_scale_um` window); see
-[`Analysis.contour_mean_curvature`](@ref). With `:CCF` the grey reference circle
-is exactly the fitted circle.
+All three circles are always drawn; `mean_method` only selects which one is
+emphasised (drawn thicker). The title shows the osteocyte index and its
+formation time `t`.
 """
 function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
                                 Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
@@ -584,20 +587,26 @@ function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
     n = length(κ)
     j = argmin(@. (Xµ[1:n] - ox)^2 + (Yµ[1:n] - oy)^2)   # nearest contour point to the osteocyte
     κ_at = κ[j]
-    # contour mean by the chosen method (reuse κ for :ALF; :CCF/:CTF are window-free)
-    mean_κ = mean_method === :ALF ? sum(κ) / length(κ) :
-                                    contour_mean_curvature(Xµ, Yµ; method = mean_method)
 
     cx, cy = sum(Xµ) / length(Xµ), sum(Yµ) / length(Yµ)   # contour centroid
 
-    fig = Figure(size = (1150, 820))
-    ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = L"x\ [\mathrm{µm}]", ylabel = L"y\ [\mathrm{µm}]", aspect = DataAspect(),
-               title = L"\text{Osteocyte } %$idx:\ \overline{\kappa} = %$(round(mean_κ; sigdigits=3))\ \mathrm{µm}^{-1}")
-    if mean_κ != 0                                          # grey reference circle of the mean curvature
-        R = 1 / abs(mean_κ)
-        θ = range(0, 2π; length = 200)
-        lines!(ax, cx .+ R .* cos.(θ), cy .+ R .* sin.(θ);
-               color = (:gray, 0.6), linewidth = 4, label = L"\text{circle of mean }\kappa\ (R = %$(round(R; sigdigits=3))\ \mathrm{µm})")
+    # Contour mean by each method → its reference circle (radius 1/|κ̄|, centred on
+    # the centroid). For :CCF this is exactly the fitted circle; :ALF reuses κ.
+    means = ((:CCF, circle_fit_curvature(Xµ, Yµ),  :seagreen),
+             (:CTF, turning_fit_curvature(Xµ, Yµ), :dodgerblue),
+             (:ALF, sum(κ) / length(κ),            :purple))
+
+    fig = Figure(size = (1300, 820))
+    ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = L"x\ [\mathrm{µm}]", ylabel = L"y\ [\mathrm{µm}]",
+               aspect = DataAspect(),
+               title = L"\text{Osteocyte } %$idx\ (t = %$(round(t; sigdigits=3)))")
+    θ = range(0, 2π; length = 200)
+    for (m, κ̄, col) in means                               # one reference circle per method
+        κ̄ == 0 && continue
+        R  = 1 / abs(κ̄)
+        lw = 3 #m === mean_method ? 5 : 3                      # emphasise the selected method
+        lines!(ax, cx .+ R .* cos.(θ), cy .+ R .* sin.(θ); color = (col, 0.85), linewidth = lw,
+               label = L"\text{%$(m): } \overline{\kappa} = %$(round(κ̄; sigdigits=3))\ \mathrm{µm}^{-1}\ (R = %$(round(R; sigdigits=3)))")
     end
     lines!(ax, Xµ, Yµ; color = :black, linewidth = 3, label = L"\text{contour}")
     scatter!(ax, [ox], [oy]; color = :red, markersize = 18,
@@ -684,6 +693,142 @@ function plot_curvature_vs_kscale(idx, t_form_ordered, outer_dt_S, inner_dt_S,
     lines!(ax,   ks, κ_at; color = :red, linewidth = 3, linestyle = :dash, label = L"\kappa\ \text{at osteocyte}")
     scatter!(ax, ks, κ_at; color = :red, markersize = 10)
     axislegend(ax; position = :rt, framevisible = false)
+    return fig
+end
+
+"""
+    plot_parabola_fits(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                       Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                       window_um=200.0, k_values=[20.0, 50.0, 100.0],
+                       anchor=true, sampling=:resample) -> Figure
+
+Visualise the local parabola fit `compute_2D_curvature` performs at osteocyte
+`idx`. Working in the **same local frame** as that function — the contour vertex
+nearest the osteocyte translated to the origin and the contour rotated so its
+tangent there lies along the x-axis — this:
+
+- scatters the contour points within a `window_um` µm arc-length window
+  (default 200, i.e. ±100 µm of arc on each side of the osteocyte), and
+- overlays, for each scale in `k_values` (µm), the least-squares parabola
+  fitted over that scale's `±k/2` arc-length window (form set by `anchor`).
+
+Each parabola's legend entry reports the curvature it yields,
+`κ = 2a / (1+b²)^{3/2}` (signed with the contour orientation, as in
+[`Analysis.compute_2D_curvature`](@ref)). The osteocyte (the fit's central point)
+sits at the origin `(0, 0)`.
+
+`anchor` (default `true`, matching [`Analysis.compute_2D_curvature`](@ref)) fixes
+each parabola's **turning point (vertex) at the osteocyte** — fit `y = a x²` — so
+the vertex sits at `(0, 0)` regardless of `k_scale_um`; the reported κ is taken
+from that same fit. Set `anchor=false` for `y = a x² + b x` — still through the
+osteocyte, but with a free vertex that generally lies away from it.
+
+`sampling` (default `:resample`, matching [`Analysis.compute_2D_curvature`](@ref))
+sets how the uneven marching-squares spacing is handled: `:resample` resamples the
+contour to uniform arc-length spacing before fitting (the scattered points are then
+the uniform ones), `:weighted` keeps the original points but weights each by its
+local arc-length element, and `:none` is the plain equal-weight fit.
+"""
+function plot_parabola_fits(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                            Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                            window_um = 200.0, k_values = [20.0, 50.0, 100.0],
+                            anchor::Bool = true, sampling::Symbol = :resample)
+    t       = t_form_ordered[idx]
+    z_layer = Ocy_pos_voxel_ordered[idx][3]
+    ox      = Ocy_pos_voxel_ordered[idx][1] * dx
+    oy      = Ocy_pos_voxel_ordered[idx][2] * dy
+
+    # Contour (smoothed z-slab) in physical µm — same construction as the other diagnostics.
+    kz = _kz_half(σ_μm, dx, dy, dz)
+    Z  = size(outer_dt_S, 3)
+    z0 = max(1, z_layer - kz); z1 = min(Z, z_layer + kz)
+    oa = @view outer_dt_S[:, :, z0:z1]; ia = @view inner_dt_S[:, :, z0:z1]
+    ϕ  = smooth_ϕ((@. Float32((1 - t) * oa - t * ia)); dx, dy, dz, σ_μm)
+    Xc, Yc = compute_zero_contour_xy_coords(ϕ, z_layer - z0 + 1, 1)
+    Xµ, Yµ = Xc .* dx, Yc .* dy
+
+    # With :resample, replace the contour with a uniform-spacing one (then equal weights);
+    # :weighted keeps the original points but weights them; :none is plain equal weight.
+    if sampling === :resample
+        n0 = length(Xµ) - 1
+        sp = median(Float64[hypot(Xµ[i+1]-Xµ[i], Yµ[i+1]-Yµ[i]) for i in 1:n0])
+        Xµ, Yµ = resample_closed_contour(Xµ, Yµ; spacing = sp)
+    end
+
+    N  = length(Xµ) - 1
+    Xv = @view Xµ[1:N]; Yv = @view Yµ[1:N]
+    wrap(i) = mod1(i, N)
+    jc = argmin(@. (Xv - ox)^2 + (Yv - oy)^2)            # central vertex (nearest the osteocyte)
+
+    # The following MIRRORS compute_2D_curvature so the picture matches the fit exactly:
+    # orientation sign, local frame (translate jc → origin, rotate tangent → +x),
+    # and the arc-length window selection.
+    A2 = 0.0
+    @inbounds for i in 1:N
+        ip = wrap(i + 1); A2 += Xv[i] * Yv[ip] - Xv[ip] * Yv[i]
+    end
+    orient = A2 ≥ 0 ? 1.0 : -1.0
+
+    θ = atan(Yv[wrap(jc + 1)] - Yv[wrap(jc - 1)], Xv[wrap(jc + 1)] - Xv[wrap(jc - 1)])
+    cs = cos(-θ); sn = sin(-θ)
+    tolocal(i) = (dX = Xv[i] - Xv[jc]; dY = Yv[i] - Yv[jc]; (cs * dX - sn * dY, sn * dX + cs * dY))
+
+    seglen(i) = (ip = wrap(i + 1); hypot(Xv[ip] - Xv[i], Yv[ip] - Yv[i]))
+    function window(half; k_min = 3)
+        right = Int[]; acc = 0.0; jj = jc
+        while length(right) < N - 2
+            jn = wrap(jj + 1); acc += seglen(jj); push!(right, jn)
+            (acc ≥ half && length(right) ≥ k_min) && break
+            jj = jn
+        end
+        left = Int[]; acc = 0.0; jj = jc
+        while length(left) < N - 2
+            jp = wrap(jj - 1); acc += seglen(jp); pushfirst!(left, jp)
+            (acc ≥ half && length(left) ≥ k_min) && break
+            jj = jp
+        end
+        return vcat(left, jc, right)
+    end
+
+    # Contour points within the (big) window, in the local frame.
+    wpts = [tolocal(i) for i in window(window_um / 2)]
+    px = first.(wpts); py = last.(wpts)
+
+    fig = Figure(size = (1200, 780))
+    ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = L"x'\ [\mathrm{µm}]", ylabel = L"y'\ [\mathrm{µm}]",
+               aspect = DataAspect(),
+               title = L"\text{Parabola fits — osteocyte } %$idx\ (t = %$(round(t; sigdigits=3)))")
+    scatter!(ax, px, py; color = (:black, 0.45), markersize = 9,
+             label = L"\text{contour } (\pm %$(Int(round(window_um/2)))\,\mathrm{µm})")
+
+    cols = [:dodgerblue, :seagreen, :darkorange, :purple, :brown]
+    for (ki, k) in enumerate(k_values)
+        idxs = window(k / 2)
+        lp = [tolocal(i) for i in idxs]
+        lx = first.(lp); ly = last.(lp)
+        # arc-length weights only for :weighted (resampled points are already uniform).
+        w = sampling === :weighted ? Float64[(seglen(i) + seglen(wrap(i - 1))) / 2 for i in idxs] :
+                                     ones(length(idxs))
+        # LS parabola through (0,0) (c=0); with `anchor` also fix the vertex there
+        # → y = a x² (b=0), else y = a x² + b x (free vertex).
+        a, b, c = if anchor
+            (sum(w .* lx .^ 2 .* ly) / (sum(w .* lx .^ 4) + 1e-10), 0.0, 0.0)
+        else
+            A = hcat(lx .^ 2, lx); ab = (A' * (w .* A)) \ (A' * (w .* ly)); (ab[1], ab[2], 0.0)
+        end
+        κ = orient * 2a / ((1 + b^2)^(3/2) + 1e-10)              # same κ as compute_2D_curvature
+        xs = range(minimum(lx), maximum(lx); length = 160)
+        ys = @. a * xs^2 + b * xs + c
+        lines!(ax, xs, ys; color = cols[mod1(ki, length(cols))], linewidth = 3,
+               label = L"k = %$(Int(round(k)))\,\mathrm{µm}:\ \kappa = %$(round(κ; sigdigits=3))\ \mathrm{µm}^{-1}")
+    end
+    scatter!(ax, [0.0], [0.0]; color = :red, markersize = 18, label = L"\text{osteocyte } (0,0)")
+
+    # Focus the view on the contour window; diverging parabolas are clipped to it.
+    xpad = 0.05 * (maximum(px) - minimum(px) + eps()); ypad = 0.05 * (maximum(py) - minimum(py) + eps())
+    xlims!(ax, minimum(px) - xpad, maximum(px) + xpad)
+    ylims!(ax, minimum(py) - ypad, maximum(py) + ypad)
+    Legend(fig[1, 2], ax; framevisible = false)
     return fig
 end
 

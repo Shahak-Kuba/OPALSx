@@ -57,7 +57,7 @@ export
     edt, edt_S, edt_aniso, edt_S_aniso, compute_EDT_S, ϕ_func, compute_ϕ_at_t, compute_ϕ_stack,
     compute_ϕ_at_t_3D, compute_ϕ_stack_3D, estimate_Ocy_formation_time, smooth_ϕ,
     # Geometry — contours, centroids, cutting planes, projections
-    compute_zero_contour_xy_coords, Ω, compute_xy_center, Plane,
+    compute_zero_contour_xy_coords, resample_closed_contour, Ω, compute_xy_center, Plane,
     compute_planes_and_intersections, proj_3D_onto_XZ,
     # Analysis — curvature and osteocyte analysis
     analysis_Tdelay_pairs, compute_curvature, compute_curvature_4th,
@@ -68,6 +68,6 @@ export
     plot_α_β!, plot_3d_surfaces!, plot_osteocyte_distribution,
     plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
     plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
-    plot_osteocyte_contour, plot_curvature_vs_kscale, plot_smoothing_effect
+    plot_osteocyte_contour, plot_curvature_vs_kscale, plot_parabola_fits, plot_smoothing_effect
 
 end # module OPALSx

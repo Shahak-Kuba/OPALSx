@@ -11,7 +11,7 @@
 #   ./run_k_scale_sweep.sh                                  # use the settings below
 #   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2              # override datasets (1st arg)
 #   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 FM40_        # + run-folder prefix (2nd arg)
-#   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 FM40_ CTF    # + contour-mean method (3rd arg)
+#   ./run_k_scale_sweep.sh FM40-4-R2,FM40-4-E2,FM40-2-S2 FM40_ CTF    # + contour-mean method (3rd arg)
 # To set a prefix while keeping the default datasets, pass them explicitly:
 #   ./run_k_scale_sweep.sh FM40-1-R1,FM40-2-R2 myprefix_
 # mean_method is one of CCF (circle fit, default), CTF (turning fit) or ALF
