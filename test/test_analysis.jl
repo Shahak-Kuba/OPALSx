@@ -37,6 +37,15 @@
         @test_throws ArgumentError contour_mean_curvature(copy(x), copy(y); method = :nope)
     end
 
+    @testset "circle_fit_curvature — free centre robust to uneven sampling" begin
+        R = 40.0
+        θ = vcat(range(-0.5, 0.5; length = 160), range(0.6, 2π - 0.6; length = 40))  # clustered on +x side
+        x = R .* cos.(θ); y = R .* sin.(θ); push!(x, x[1]); push!(y, y[1])           # closed
+        @test isapprox(circle_fit_curvature(x, y; center = :free), 1 / R; rtol = 1e-3)  # recovers 1/R
+        @test circle_fit_curvature(x, y; center = :centroid) > 1.5 / R                  # centroid badly biased
+        @test_throws ArgumentError circle_fit_curvature(x, y; center = :nope)
+    end
+
     @testset "curvature_at_point — cylinder surface has κ ≈ 1/r" begin
         ϕ = Float32.(cyl_sdf(20.0))
         for rpx in (35.0, 50.0)

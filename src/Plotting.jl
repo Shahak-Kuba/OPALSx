@@ -557,9 +557,10 @@ The figure (in physical µm, equal aspect) shows:
   there (the per-vertex fit at scale `k_scale_um`),
 - **one reference circle per mean-curvature method** — `:CCF` (circle fit),
   `:CTF` (turning fit) and `:ALF` (average of local fits over `k_scale_um`) —
-  each of radius `1/|κ̄|` centred on the contour centroid, so the three contour
-  means can be compared directly (see [`Analysis.contour_mean_curvature`](@ref)).
-  For `:CCF` the circle is exactly the fitted circle.
+  each of radius `1/|κ̄|` and drawn at the contour centroid, so the three contour
+  means can be compared by radius (see [`Analysis.contour_mean_curvature`](@ref)).
+  (`:CCF` now uses a free-centre fit, so only its radius — not its centre — is
+  shown here.)
 
 All three circles are always drawn; `mean_method` only selects which one is
 emphasised (drawn thicker). The title shows the osteocyte index and its
@@ -591,7 +592,7 @@ function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
     cx, cy = sum(Xµ) / length(Xµ), sum(Yµ) / length(Yµ)   # contour centroid
 
     # Contour mean by each method → its reference circle (radius 1/|κ̄|, centred on
-    # the centroid). For :CCF this is exactly the fitted circle; :ALF reuses κ.
+    # the centroid; :CCF now uses a free-centre fit so only its radius matches). :ALF reuses κ.
     means = ((:CCF, circle_fit_curvature(Xµ, Yµ),  :seagreen),
              (:CTF, turning_fit_curvature(Xµ, Yµ), :dodgerblue),
              (:ALF, sum(κ) / length(κ),            :purple))

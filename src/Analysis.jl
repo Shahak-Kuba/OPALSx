@@ -584,39 +584,87 @@ function turning_fit_curvature(x, y)
     return orient * turning / L
 end
 
+# Taubin (1991) algebraic circle fit: a fast, low-bias, closed-form least-squares
+# circle with a FREE centre. Returns (cx, cy, R). Data are mean-centred for
+# conditioning; the characteristic cubic is solved by a few Newton steps.
+function _taubin_circle(X, Y)
+    n = length(X)
+    x̄ = sum(X) / n; ȳ = sum(Y) / n
+    Mxx = Myy = Mxy = Mxz = Myz = Mzz = 0.0
+    @inbounds for i in 1:n
+        u = X[i] - x̄; v = Y[i] - ȳ; z = u*u + v*v
+        Mxx += u*u; Myy += v*v; Mxy += u*v
+        Mxz += u*z; Myz += v*z; Mzz += z*z
+    end
+    Mxx/=n; Myy/=n; Mxy/=n; Mxz/=n; Myz/=n; Mzz/=n
+    Mz      = Mxx + Myy
+    Cov_xy  = Mxx*Myy - Mxy*Mxy
+    Var_z   = Mzz - Mz*Mz
+    A3 = 4Mz
+    A2 = -3Mz*Mz - Mzz
+    A1 = Var_z*Mz + 4Cov_xy*Mz - Mxz*Mxz - Myz*Myz
+    A0 = Mxz*(Mxz*Myy - Myz*Mxy) + Myz*(Myz*Mxx - Mxz*Mxy) - Var_z*Cov_xy
+    A22 = 2A2; A33 = 3A3
+    xx = 0.0; yy = 1e30                                    # Newton from the smallest root (x=0)
+    for _ in 1:99
+        yold = yy
+        yy = A0 + xx*(A1 + xx*(A2 + xx*A3))
+        abs(yy) > abs(yold) && break
+        Dy = A1 + xx*(A22 + xx*A33)
+        Dy == 0 && break
+        xold = xx; xx = xold - yy/Dy
+        (abs((xx - xold)/xx) < 1e-12 || isnan(xx)) && break
+        xx < 0 && (xx = 0.0)
+    end
+    DET = xx*xx - xx*Mz + Cov_xy
+    cx  = (Mxz*(Myy - xx) - Myz*Mxy) / DET / 2
+    cy  = (Myz*(Mxx - xx) - Mxz*Mxy) / DET / 2
+    R   = sqrt(cx*cx + cy*cy + Mz)
+    return (cx + x̄, cy + ȳ, R)
+end
+
 """
-    circle_fit_curvature(x, y) -> Float64
+    circle_fit_curvature(x, y; center=:free) -> Float64
 
 Mean curvature of a closed contour `(x, y)` — the **contour circle fit** (`:CCF`)
-— from a circle fitted to **all** of its points, with the circle **centred on the
-contour centroid** `P̄ = (1/N)∑ Pᵢ`.
+— as `κ = 1/R` of a circle fitted to **all** of its points. The circle's centre
+is chosen by `center`:
 
-With the centre fixed at the centroid, the least-squares circle radius (the `R`
-minimising `∑(‖Pᵢ−P̄‖ − R)²`) is simply the mean centroid distance,
+- `:free` (**default**): a free-centre least-squares circle (Taubin's algebraic
+  fit), which optimises both centre and radius to minimise the radial residual
+  `∑(‖Pᵢ−c‖ − R)²`. It is the genuine best-fit circle and is **robust to uneven
+  point spacing and eccentric contours** — the centroid of the points is generally
+  *not* the best-fit centre (e.g. clustered sampling drags a centroid-based centre
+  off the true one).
+- `:centroid`: the centre is fixed at the contour centroid `P̄ = (1/N)∑ Pᵢ`, so
+  `R = (1/N) ∑ ‖Pᵢ − P̄‖` is just the mean centroid distance.
 
-    R = (1/N) ∑ ‖Pᵢ − P̄‖,     κ = 1 / R .
-
-Like [`turning_fit_curvature`](@ref) this uses **no measurement window**, so it
-is independent of `k_scale_um`; for a perfect circle both give `1/R` exactly. It
-differs from the turning-based `2π/L = 1/R_eff` for non-circular contours: this
-uses the centroid-distance radius, whereas `2π/L` uses the perimeter radius
-`L/2π`. The result is positive (a fitted circle is convex).
+Like [`turning_fit_curvature`](@ref) this uses **no measurement window**, so it is
+independent of `k_scale_um`; for a perfect circle every variant gives `1/R`. It
+differs from the turning-based `2π/L = 1/R_eff` for non-circular contours. The
+result is positive (a fitted circle is convex).
 
 `x`, `y` are the closed contour (first point repeated), in physical units; the
 result is in those units⁻¹ (µm⁻¹).
 """
-function circle_fit_curvature(x, y)
+function circle_fit_curvature(x, y; center::Symbol = :free)
     @assert length(x) == length(y) "x and y must have same length"
     N = length(x) - 1
     @assert N ≥ 3 "Need at least 3 points"
     X = @view x[1:N]; Y = @view y[1:N]
-    cx = sum(X) / N; cy = sum(Y) / N           # contour centroid
-    R = 0.0
-    @inbounds for i in 1:N
-        R += hypot(X[i] - cx, Y[i] - cy)       # distance from centroid
+    if center === :free
+        _, _, R = _taubin_circle(X, Y)
+        return 1 / R
+    elseif center === :centroid
+        cx = sum(X) / N; cy = sum(Y) / N
+        R = 0.0
+        @inbounds for i in 1:N
+            R += hypot(X[i] - cx, Y[i] - cy)
+        end
+        return N / R                                       # 1 / (mean centroid distance)
+    else
+        throw(ArgumentError("center must be :free or :centroid (got :$center)"))
     end
-    R /= N
-    return 1 / R
 end
 
 """

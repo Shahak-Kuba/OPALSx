@@ -100,7 +100,7 @@ saveshow("osteocyte_$(osteocyte_idx)_curvature_vs_kscale.png", f3)
 # ── Figure 4: local parabola fits at several k_scale_um (osteocyte at origin) ─
 f4 = plot_parabola_fits(osteocyte_idx, t_sorted, outer_dt_S, inner_dt_S,
                         pos_sorted, dx, dy, dz, σ_smooth;
-                        window_um = parab_window_um, k_values = k_parab, anchor = true)
+                        window_um = parab_window_um, k_values = k_parab, anchor = false)
 saveshow("osteocyte_$(osteocyte_idx)_parabola_fits.png", f4)
 
 println("\nFinished. Figures saved to $FIGDIR")
