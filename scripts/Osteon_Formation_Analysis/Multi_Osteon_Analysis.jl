@@ -22,7 +22,9 @@ dx = 0.379; dy = 0.379; dz = 0.358   # voxel spacings [µm]
 # Gaussian σ [µm] applied to ϕ before curvature
 σ_smooth = 2.0                     
 # arc length [µm] over which curvature is measured (~osteocyte size)
-k_scale_um = 60.0                
+k_scale_um = 60.0
+# per-vertex 2-D curvature fit: :parabola or :circle (Taubin)
+fit_type = :parabola
 
 # ── Source modules ─────────────────────────────────────────────────────────────
 include("../../src/Imaging.jl")
@@ -113,7 +115,7 @@ for (di, name) in enumerate(datasets)
     # Curvature of the formation front at each osteocyte (progress bar inside).
     κ_at_osteocyte, mean_available_κ = compute_curvature_near_osteocyte(
         t_form[idx_sort], outer_dt_S, inner_dt_S, Ocy_pos_voxel[idx_sort],
-        dx, dy, dz, σ_smooth; k_scale_um=k_scale_um)
+        dx, dy, dz, σ_smooth; k_scale_um=k_scale_um, fit=fit_type)
 
     push!(dataset_labels,       name)
     push!(t_form_all,           t_form[idx_sort])

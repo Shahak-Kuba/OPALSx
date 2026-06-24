@@ -36,7 +36,8 @@ export plot_3d_contours!, plot_3d_contours_w_intersections!, plot_example_slices
        plot_3d_surfaces!, plot_osteocyte_distribution,
        plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
        plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
-       plot_osteocyte_contour, plot_curvature_vs_kscale, plot_parabola_fits, plot_smoothing_effect
+       plot_osteocyte_contour, plot_osteocyte_contours, plot_curvature_vs_kscale,
+       plot_parabola_fits, plot_smoothing_effect
 
 # ── LaTeX label helpers ───────────────────────────────────────────────────────
 # Every user-facing string — axis labels, titles, legend entries and tick labels —
@@ -541,6 +542,55 @@ end
 # z half-width of the smoothing kernel (slab radius) for a given σ and spacings.
 _kz_half(σ_μm, dx, dy, dz) = (length(KernelFactors.gaussian((σ_μm/dx, σ_μm/dy, σ_μm/dz))[3]) - 1) ÷ 2
 
+# Rebuild osteocyte `idx`'s smoothed z-slab and extract everything the contour
+# plots need: the contour in µm (Xµ, Yµ), the osteocyte position (ox, oy), its
+# formation time, the local curvature at it, the contour centroid, and the three
+# mean-curvature methods' (κ̄, colour). Shared by plot_osteocyte_contour(s).
+function _osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                            Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; k_scale_um)
+    t       = t_form_ordered[idx]
+    z_layer = Ocy_pos_voxel_ordered[idx][3]
+    ox      = Ocy_pos_voxel_ordered[idx][1] * dx
+    oy      = Ocy_pos_voxel_ordered[idx][2] * dy
+
+    kz = _kz_half(σ_μm, dx, dy, dz)
+    Z  = size(outer_dt_S, 3)
+    z0 = max(1, z_layer - kz); z1 = min(Z, z_layer + kz)
+    oa = @view outer_dt_S[:, :, z0:z1]
+    ia = @view inner_dt_S[:, :, z0:z1]
+    ϕ_smooth = smooth_ϕ((@. Float32((1 - t) * oa - t * ia)); dx, dy, dz, σ_μm)
+
+    X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, 1)
+    Xµ, Yµ = X .* dx, Y .* dy
+    κ = compute_2D_curvature(copy(Xµ), copy(Yµ); arclen = k_scale_um)
+    n = length(κ)
+    j = argmin(@. (Xµ[1:n] - ox)^2 + (Yµ[1:n] - oy)^2)   # nearest contour point to the osteocyte
+    κ_at = κ[j]
+    cx, cy = sum(Xµ) / length(Xµ), sum(Yµ) / length(Yµ)  # contour centroid
+
+    means = ((:CCF, circle_fit_curvature(Xµ, Yµ),  :seagreen),
+             (:CTF, turning_fit_curvature(Xµ, Yµ), :dodgerblue),
+             (:ALF, sum(κ) / length(κ),            :purple))
+    return (; Xµ, Yµ, ox, oy, t, κ_at, cx, cy, means)
+end
+
+# Reference contours on slice `z_layer`: the t=0 cement line (zero contour of the
+# outer signed distance) and the t=1 Haversian canal (zero contour of the inner),
+# both smoothed like the formation front. Returns ((Xcement, Ycement), (Xcanal,
+# Ycanal)) in µm.
+function _reference_contours(z_layer, outer_dt_S, inner_dt_S, dx, dy, dz, σ_μm)
+    kz = _kz_half(σ_μm, dx, dy, dz)
+    Z  = size(outer_dt_S, 3)
+    z0 = max(1, z_layer - kz); z1 = min(Z, z_layer + kz)
+    zc = z_layer - z0 + 1
+    oa = @view outer_dt_S[:, :, z0:z1]; ia = @view inner_dt_S[:, :, z0:z1]
+    ϕ0 = smooth_ϕ((@. Float32(oa));  dx, dy, dz, σ_μm)     # t = 0  → cement line
+    ϕ1 = smooth_ϕ((@. Float32(-ia)); dx, dy, dz, σ_μm)     # t = 1  → Haversian canal
+    X0, Y0 = compute_zero_contour_xy_coords(ϕ0, zc, 1)
+    X1, Y1 = compute_zero_contour_xy_coords(ϕ1, zc, 1)
+    return (X0 .* dx, Y0 .* dy), (X1 .* dx, Y1 .* dy)
+end
+
 """
     plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
                            Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
@@ -569,33 +619,10 @@ formation time `t`.
 function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
                                 Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
                                 k_scale_um = 15.0, mean_method::Symbol = :CCF)
-    t       = t_form_ordered[idx]
-    z_layer = Ocy_pos_voxel_ordered[idx][3]
-    ox      = Ocy_pos_voxel_ordered[idx][1] * dx
-    oy      = Ocy_pos_voxel_ordered[idx][2] * dy
-
-    # Rebuild the smoothed z-slab exactly as compute_curvature_near_osteocyte does.
-    kz = _kz_half(σ_μm, dx, dy, dz)
-    Z  = size(outer_dt_S, 3)
-    z0 = max(1, z_layer - kz); z1 = min(Z, z_layer + kz)
-    oa = @view outer_dt_S[:, :, z0:z1]
-    ia = @view inner_dt_S[:, :, z0:z1]
-    ϕ_smooth = smooth_ϕ((@. Float32((1 - t) * oa - t * ia)); dx, dy, dz, σ_μm)
-
-    X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, 1)
-    Xµ, Yµ = X .* dx, Y .* dy
-    κ = compute_2D_curvature(copy(Xµ), copy(Yµ); arclen = k_scale_um)
-    n = length(κ)
-    j = argmin(@. (Xµ[1:n] - ox)^2 + (Yµ[1:n] - oy)^2)   # nearest contour point to the osteocyte
-    κ_at = κ[j]
-
-    cx, cy = sum(Xµ) / length(Xµ), sum(Yµ) / length(Yµ)   # contour centroid
-
-    # Contour mean by each method → its reference circle (radius 1/|κ̄|, centred on
-    # the centroid; :CCF now uses a free-centre fit so only its radius matches). :ALF reuses κ.
-    means = ((:CCF, circle_fit_curvature(Xµ, Yµ),  :seagreen),
-             (:CTF, turning_fit_curvature(Xµ, Yµ), :dodgerblue),
-             (:ALF, sum(κ) / length(κ),            :purple))
+    d = _osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
+                           Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; k_scale_um)
+    Xµ, Yµ, ox, oy, t, κ_at, cx, cy, means =
+        d.Xµ, d.Yµ, d.ox, d.oy, d.t, d.κ_at, d.cx, d.cy, d.means
 
     fig = Figure(size = (1300, 820))
     ax  = Axis(fig[1, 1]; _LTICKS..., xlabel = L"x\ [\mathrm{µm}]", ylabel = L"y\ [\mathrm{µm}]",
@@ -613,6 +640,95 @@ function plot_osteocyte_contour(idx, t_form_ordered, outer_dt_S, inner_dt_S,
     scatter!(ax, [ox], [oy]; color = :red, markersize = 18,
              label = L"\text{osteocyte}\ (\kappa = %$(round(κ_at; sigdigits=3)))")
     Legend(fig[1, 2], ax; framevisible = false)   # legend in its own column → never over the contour
+    return fig
+end
+
+"""
+    plot_osteocyte_contours(idxs, t_form_ordered, outer_dt_S, inner_dt_S,
+                            Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                            nrows=2, ncols=2, k_scale_um=15.0,
+                            plot_mean_curvature_circles=false,
+                            show_reference_contours=true) -> Figure
+
+Grid version of [`plot_osteocyte_contour`](@ref): an `nrows × ncols` grid with one
+panel per osteocyte in `idxs` (so `length(idxs)` must equal `nrows*ncols`; e.g.
+`nrows=3, ncols=2` needs 6 indices). Each panel shows that osteocyte's
+formation-front contour (black) and its position (red).
+
+Every contour is centred on its own centroid and **all panels share the same x/y
+range** — a common square window sized to fit the largest reference contour — so
+sizes/shapes are comparable across osteocytes. To reduce clutter, only the
+**bottom row** shows x tick labels and only the **first column** shows y tick
+labels.
+
+`show_reference_contours` (default `true`) overlays, in light grey, the `t = 0`
+**cement line** and the `t = 1` **Haversian canal** (dashed) on the osteocyte's
+slice, as references for where the formation front sits between them.
+
+`plot_mean_curvature_circles` (default `false`) toggles the per-method
+mean-curvature reference circles (`:CCF`, `:CTF`, `:ALF`; radius `1/|κ̄|`, drawn at
+the centroid) on every panel — see [`Analysis.contour_mean_curvature`](@ref).
+"""
+function plot_osteocyte_contours(idxs, t_form_ordered, outer_dt_S, inner_dt_S,
+                                 Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
+                                 nrows::Int = 2, ncols::Int = 2, k_scale_um = 15.0,
+                                 plot_mean_curvature_circles::Bool = false,
+                                 show_reference_contours::Bool = true)
+    @assert length(idxs) == nrows * ncols "length(idxs) ($(length(idxs))) must equal nrows*ncols ($(nrows*ncols))"
+
+    data = [_osteocyte_contour(i, t_form_ordered, outer_dt_S, inner_dt_S,
+                               Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm; k_scale_um) for i in idxs]
+    refs = show_reference_contours ?
+           [_reference_contours(Ocy_pos_voxel_ordered[i][3], outer_dt_S, inner_dt_S, dx, dy, dz, σ_μm) for i in idxs] :
+           Union{Nothing,Tuple}[nothing for _ in idxs]
+
+    # Common square half-window (contours centred on the formation-front centroid),
+    # large enough for every reference contour → identical x/y range on all panels.
+    half = 0.0
+    for (d, rf) in zip(data, refs)
+        half = max(half, maximum(abs, d.Xµ .- d.cx), maximum(abs, d.Yµ .- d.cy),
+                   abs(d.ox - d.cx), abs(d.oy - d.cy))
+        if rf !== nothing
+            (Xc0, Yc0), (Xc1, Yc1) = rf
+            half = max(half, maximum(abs, Xc0 .- d.cx), maximum(abs, Yc0 .- d.cy),
+                       maximum(abs, Xc1 .- d.cx), maximum(abs, Yc1 .- d.cy))
+        end
+    end
+    half *= 1.05
+
+    fig = Figure(size = (ncols * 400 + 300, nrows * 400 + 120))
+    θ = range(0, 2π; length = 200)
+    refcol = (:gray, 0.6)
+    ax_ref = nothing
+    for (p, (i, d)) in enumerate(zip(idxs, data))
+        r = cld(p, ncols); c = mod1(p, ncols)
+        ax = Axis(fig[r, c]; _LTICKS..., aspect = DataAspect(),
+                  xlabel = r == nrows ? L"x\ [\mathrm{µm}]" : "",
+                  ylabel = c == 1     ? L"y\ [\mathrm{µm}]" : "",
+                  xticklabelsvisible = r == nrows,   # only the bottom row shows x tick labels
+                  yticklabelsvisible = c == 1,       # only the first column shows y tick labels
+                  title = L"\text{Osteocyte } %$i")
+        if refs[p] !== nothing                        # cement line (t=0) & canal (t=1) references
+            (Xc0, Yc0), (Xc1, Yc1) = refs[p]
+            lines!(ax, Xc0 .- d.cx, Yc0 .- d.cy; color = refcol, linewidth = 2,
+                   label = L"\text{Cement line }")
+            lines!(ax, Xc1 .- d.cx, Yc1 .- d.cy; color = refcol, linewidth = 2, linestyle = :dash,
+                   label = L"\text{Haversain canal }")
+        end
+        if plot_mean_curvature_circles
+            for (m, κ̄, col) in d.means                # centred → circles at the origin
+                κ̄ == 0 && continue
+                R = 1 / abs(κ̄)
+                lines!(ax, R .* cos.(θ), R .* sin.(θ); color = (col, 0.85), linewidth = 2.5,
+                       label = L"\text{%$(m) circle}")
+            end
+        end
+        lines!(ax, d.Xµ .- d.cx, d.Yµ .- d.cy; color = :black, linewidth = 2.5, label = L"\text{contour}")
+        scatter!(ax, [d.ox - d.cx], [d.oy - d.cy]; color = :red, markersize = 14, label = L"\text{osteocyte}")
+        limits!(ax, -half, half, -half, half)         # identical range on every panel
+        ax_ref = ax
+    end
+    Legend(fig[nrows + 1, 1:ncols], ax_ref; orientation = :horizontal, framevisible = false)
     return fig
 end
 

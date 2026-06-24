@@ -18,6 +18,7 @@ dataset          = "FM40-4-E2"
 k_scale_um_array = [20.0, 100.0]    # curvature scales to compare [µm]
 dx = 0.379; dy = 0.379; dz = 0.358        # voxel spacings [µm]
 σ_smooth = 2.0                            # Gaussian σ [µm] applied to ϕ before curvature
+fit_type = :parabola                      # per-vertex 2-D curvature fit: :parabola or :circle (Taubin)
 
 # ── Source modules ─────────────────────────────────────────────────────────────
 include("../../src/Imaging.jl")
@@ -94,7 +95,7 @@ mean_κ_all = Vector{Vector{Float64}}()
 for (ki, k) in enumerate(k_scale_um_array)
     println("\n  k_scale_um = $k µm   ($ki/$(length(k_scale_um_array)))")
     κ_at, mean_κ = compute_curvature_near_osteocyte(
-        t_sorted, outer_dt_S, inner_dt_S, pos_sorted, dx, dy, dz, σ_smooth; k_scale_um=k)
+        t_sorted, outer_dt_S, inner_dt_S, pos_sorted, dx, dy, dz, σ_smooth; k_scale_um=k, fit=fit_type)
     push!(k_labels,   "k=$(isinteger(k) ? Int(k) : k) µm")
     push!(κ_at_all,   κ_at)
     push!(mean_κ_all, mean_κ)

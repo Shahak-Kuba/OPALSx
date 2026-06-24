@@ -23,6 +23,17 @@
         @test std(κ) < 0.1 * abs(sum(κ) / length(κ))       # ~constant around the circle
     end
 
+    @testset "compute_2D_curvature — local circle (Taubin) fit, κ = 1/R" begin
+        R = 30.0; M = 240
+        θ = collect(range(0, 2π; length = M + 1))
+        x = R .* cos.(θ); y = R .* sin.(θ)
+        κc = compute_2D_curvature(copy(x), copy(y); arclen = 30.0, fit = :circle)
+        @test length(κc) == M                              # one value per unique vertex
+        @test isapprox(sum(κc) / length(κc), 1 / R; rtol = 1e-3)   # circle fit is exact on a circle
+        @test all(κc .> 0)                                 # CCW circle ⇒ positive curvature
+        @test_throws ArgumentError compute_2D_curvature(copy(x), copy(y); fit = :circle, sampling = :nope)
+    end
+
     @testset "contour_mean_curvature — methods agree on a circle (κ = 1/R)" begin
         R = 30.0; M = 240
         θ = collect(range(0, 2π; length = M + 1))

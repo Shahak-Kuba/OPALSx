@@ -68,6 +68,7 @@ export
     plot_α_β!, plot_3d_surfaces!, plot_osteocyte_distribution,
     plot_formation_time_density, plot_curvature_density, plot_tform_curvature_hexbin,
     plot_curvature_by_time_bracket, plot_curvature_by_scale, plot_formation_time_ecdf, pooled_kde,
-    plot_osteocyte_contour, plot_curvature_vs_kscale, plot_parabola_fits, plot_smoothing_effect
+    plot_osteocyte_contour, plot_osteocyte_contours, plot_curvature_vs_kscale,
+    plot_parabola_fits, plot_smoothing_effect
 
 end # module OPALSx

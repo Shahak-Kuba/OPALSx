@@ -322,8 +322,8 @@ function ensure_ccw(X::AbstractVector, Y::AbstractVector)
 end
 
 """
-    compute_2D_curvature(x, y; k=3, arclen=nothing, k_min=3, eps=1e-10,
-                         anchor=true, sampling=:resample, resample_spacing=nothing) -> Matrix{Float64}
+    compute_2D_curvature(x, y; k=3, arclen=nothing, k_min=3, eps=1e-10, anchor=true,
+                         fit=:parabola, sampling=:resample, resample_spacing=nothing) -> Matrix{Float64}
 
 Signed curvature along a closed planar contour `(x, y)` by local parabola
 fitting. Returns one value per *unique* contour vertex (length `length(x)-1`,
@@ -357,10 +357,17 @@ Keyword arguments
              overrides `k`
 - `k_min`  : minimum points per side in arc-length mode (parabola-fit stability)
 - `eps`    : small value added to the denominator for numerical stability
-- `anchor` : both forms pass through the central point (`c = 0`). If `true`
-             (**default**), also fix the parabola's turning point (vertex) there —
-             fit `y = a x²` (force `b = 0`) — so the vertex sits exactly at the
-             point the curvature is evaluated at (κ = 2a). Set `false` for
+- `fit`    : local fit per window —
+             * `:parabola` (**default**): least-squares parabola, curvature from
+               `κ = 2a/(1+b²)^{3/2}` (see `anchor`);
+             * `:circle`: a free-centre **Taubin** least-squares circle fitted to the
+               window, `κ = 1/R` (signed by the side of the fitted centre). `anchor`
+               and `weighted` do not apply to the circle fit (a Taubin circle is a
+               free fit; under the default `:resample` the window is already uniform).
+- `anchor` : (parabola only) both forms pass through the central point (`c = 0`). If
+             `true` (**default**), also fix the parabola's turning point (vertex)
+             there — fit `y = a x²` (force `b = 0`) — so the vertex sits exactly at
+             the point the curvature is evaluated at (κ = 2a). Set `false` for
              `y = a x² + b x` (through the point, with a free vertex).
 - `sampling`: how the uneven marching-squares spacing (vertices cluster where the
              contour clips grid corners, which biases an equal-weight fit toward
@@ -375,12 +382,12 @@ Keyword arguments
              `sampling=:resample`; `nothing` ⇒ the median original segment length.
 """
 function compute_2D_curvature(x, y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10,
-                              anchor::Bool=true, sampling::Symbol=:resample,
-                              resample_spacing=nothing)
+                              anchor::Bool=true, fit::Symbol=:parabola,
+                              sampling::Symbol=:resample, resample_spacing=nothing)
     if sampling === :weighted
-        return _curvature_core(x, y; k, arclen, k_min, eps, anchor, weighted=true)
+        return _curvature_core(x, y; k, arclen, k_min, eps, anchor, fit, weighted=true)
     elseif sampling === :none
-        return _curvature_core(x, y; k, arclen, k_min, eps, anchor, weighted=false)
+        return _curvature_core(x, y; k, arclen, k_min, eps, anchor, fit, weighted=false)
     elseif sampling === :resample
         # Resample to uniform arc-length spacing (removes the marching-squares
         # sampling bias), fit there, then map results back to the input vertices so
@@ -390,7 +397,7 @@ function compute_2D_curvature(x, y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10
               median(Float64[hypot(x[i+1]-x[i], y[i+1]-y[i]) for i in 1:N0]) :
               float(resample_spacing)
         xr, yr = resample_closed_contour(x, y; spacing = sp)
-        κr  = _curvature_core(xr, yr; k, arclen, k_min, eps, anchor, weighted=false)
+        κr  = _curvature_core(xr, yr; k, arclen, k_min, eps, anchor, fit, weighted=false)
         Nr  = length(xr) - 1
         κ   = zeros(N0, 1)
         @inbounds for i in 1:N0
@@ -407,11 +414,12 @@ function compute_2D_curvature(x, y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10
     end
 end
 
-# Core local-parabola curvature estimator (one value per unique input vertex).
-# `weighted` toggles arc-length weighting; resampling is handled by the public
-# `compute_2D_curvature` wrapper above.
+# Core local curvature estimator (one value per unique input vertex). `fit` selects
+# a local parabola (`:parabola`) or a local Taubin circle (`:circle`) over each
+# point's window; `weighted` toggles arc-length weighting (parabola only);
+# resampling is handled by the public `compute_2D_curvature` wrapper above.
 function _curvature_core(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10,
-                         anchor::Bool=true, weighted::Bool=false)
+                         anchor::Bool=true, fit::Symbol=:parabola, weighted::Bool=false)
     @assert length(x) == length(y) "x and y must have same length"
     N = length(x)-1
     @assert N ≥ 5 "Need at least 5 points"
@@ -498,6 +506,17 @@ function _curvature_core(x,y; k=3, arclen=nothing, k_min::Int=3, eps=1e-10,
         rotated_points = []
         for point in points
             push!(rotated_points,rotate(point, -rotation_θ))
+        end
+
+        # Local Taubin circle fit: κ = 1/R of the best-fit circle to the window;
+        # the sign is the side of the fitted centre (in the tangent frame the centre
+        # at +y ⇒ convex ⇒ positive, matching the parabola convention).
+        if fit === :circle
+            px = Float64[p[1] for p in rotated_points]
+            py = Float64[p[2] for p in rotated_points]
+            _, cyf, Rc = _taubin_circle(px, py)
+            curvature[ii] = orient * sign(cyf) / Rc
+            continue
         end
 
         # Per-point weights. Marching-squares vertices are NOT evenly spaced (they
@@ -933,6 +952,11 @@ Keyword arguments
                             is scale-free; `:ALF` reuses the `k_scale_um` window
                             and drifts with scale (see
                             [`contour_mean_curvature`](@ref)).
+- `fit`                   : per-vertex local-curvature estimator for
+                            `κ_at_osteocyte` — `:parabola` (local least-squares
+                            parabola, **default**) or `:circle` (local free-centre
+                            Taubin circle fit, `κ = 1/R`); see
+                            [`compute_2D_curvature`](@ref).
 - `show_progress`         : display a per-osteocyte progress bar (default `true`).
                             ProgressMeter throttles its own redraws (~10 Hz), so
                             the overhead is negligible next to the per-osteocyte
@@ -941,7 +965,7 @@ Keyword arguments
 function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S,
                                           Ocy_pos_voxel_ordered, dx, dy, dz, σ_μm;
                                           k_scale_um::Real=15.0, mean_method::Symbol=:CCF,
-                                          show_progress::Bool=true)
+                                          fit::Symbol=:parabola, show_progress::Bool=true)
     κ_at_osteocyte   = Float64[]
     mean_available_κ = Float64[]
 
@@ -971,8 +995,8 @@ function compute_curvature_near_osteocyte(t_form_ordered, outer_dt_S, inner_dt_S
         X, Y = compute_zero_contour_xy_coords(ϕ_smooth, z_layer - z0 + 1, idx)
         Xµ, Yµ = X .* dx, Y .* dy
 
-        # Local curvature at the osteocyte (always the per-vertex parabola fit).
-        κ = compute_2D_curvature(Xµ, Yµ; arclen=k_scale_um)
+        # Local curvature at the osteocyte (per-vertex fit; `fit` chooses parabola or circle).
+        κ = compute_2D_curvature(Xµ, Yµ; arclen=k_scale_um, fit=fit)
         push!(κ_at_osteocyte, κ[nearest_index(Xµ, Yµ, osteocyte_x, osteocyte_y)])
 
         # Contour mean by the chosen method (reuse κ for :ALF; :CCF/:CTF are window-free).

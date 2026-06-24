@@ -1,6 +1,6 @@
 # Per-osteocyte contour diagnostics (local / interactive).
 #
-# Three diagnostic figures for a single dataset:
+# Diagnostic figures for a single dataset:
 #   1. plot_osteocyte_contour   — the 2-D contour a chosen osteocyte's curvature is
 #      measured on, with the osteocyte marked and a grey reference circle of the
 #      contour's mean curvature behind it (title = mean available curvature).
@@ -13,6 +13,8 @@
 #   4. plot_parabola_fits       — in the local fitting frame (osteocyte at the
 #      origin), the contour points within a window and the least-squares parabola
 #      fitted at each of several k_scale_um values, labelled by curvature.
+#   5. plot_osteocyte_contours  — a grid (e.g. 2×2) of several osteocytes' contours
+#      on a shared x/y range, with an optional mean-curvature-circles flag.
 #
 # Run from the project root:
 #   julia --project=. scripts/Osteon_Formation_Analysis/Contour_Diagnostics.jl
@@ -21,8 +23,10 @@
 # ── Configuration ────────────────────────────────────────────────────────────
 dataset       = "FM40-4-R2"
 osteocyte_idx = 1            # which osteocyte to inspect (1 = earliest-forming; see note below)
+osteocyte_idxs = [1, 5, 10, 12, 17, 21]  # osteocytes for the multi-contour grid figure
+grid_nrows = 2; grid_ncols = 3   # grid layout for the multi-contour figure (length(osteocyte_idxs) == nrows*ncols)
 dx = 0.379; dy = 0.379; dz = 0.358    # voxel spacings [µm]
-σ_smooth      = 2.0          # Gaussian σ [µm] applied to ϕ before curvature
+σ_smooth      = 1.5          # Gaussian σ [µm] applied to ϕ before curvature
 k_scale_um    = 60.0         # arc length [µm] over which curvature is measured
 k_sweep       = 1:5:201     # arc-length scales [µm] swept for the curvature-vs-scale figure
 parab_window_um = 200.0              # arc-length window [µm] of contour shown in the parabola-fit figure
@@ -102,5 +106,12 @@ f4 = plot_parabola_fits(osteocyte_idx, t_sorted, outer_dt_S, inner_dt_S,
                         pos_sorted, dx, dy, dz, σ_smooth;
                         window_um = parab_window_um, k_values = k_parab, anchor = false)
 saveshow("osteocyte_$(osteocyte_idx)_parabola_fits.png", f4)
+
+# ── Figure 5: grid of several osteocytes' contours (shared x/y range, t=0/t=1 refs) ─
+f5 = plot_osteocyte_contours(osteocyte_idxs, t_sorted, outer_dt_S, inner_dt_S,
+                             pos_sorted, dx, dy, dz, σ_smooth;
+                             nrows = grid_nrows, ncols = grid_ncols, k_scale_um = k_scale_um,
+                             plot_mean_curvature_circles = false, show_reference_contours = true)
+saveshow("osteocyte_contours_grid.png", f5)
 
 println("\nFinished. Figures saved to $FIGDIR")
